@@ -1,0 +1,15 @@
+version: '3.4'
+
+services:
+  api:
+    volumes:
+      - type: bind
+        source: ./librechat.yaml
+        target: /app/librechat.yaml
+      - ./api/server/services/Files/Audio/TTSService.js:/app/api/server/services/Files/Audio/TTSService.js
+      - ./api/server/routes/files/speech/tts.js:/app/api/server/routes/files/speech/tts.js
+      - ./api/server/services/Endpoints/custom/initialize.js:/app/api/server/services/Endpoints/custom/initialize.js
+      - ./api/app/clients/OpenAIClient.js:/app/api/app/clients/OpenAIClient.js
+      - ./api/server/services/Config/getCustomConfig.js:/app/api/server/services/Config/getCustomConfig.js
+      - ./mcp-servers:/app/mcp-servers
+      - ./data:/app/data
