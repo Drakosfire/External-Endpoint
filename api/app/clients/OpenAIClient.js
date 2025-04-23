@@ -189,8 +189,7 @@ class OpenAIClient extends BaseClient {
 
     if (this.maxPromptTokens + this.maxResponseTokens > this.maxContextTokens) {
       throw new Error(
-        `maxPromptTokens + max_tokens (${this.maxPromptTokens} + ${this.maxResponseTokens} = ${
-          this.maxPromptTokens + this.maxResponseTokens
+        `maxPromptTokens + max_tokens (${this.maxPromptTokens} + ${this.maxResponseTokens} = ${this.maxPromptTokens + this.maxResponseTokens
         }) must be less than or equal to maxContextTokens (${this.maxContextTokens})`,
       );
     }
@@ -1010,8 +1009,7 @@ ${convo}
       if (this.options.debug) {
         logger.debug('[OpenAIClient] summaryTokenCount', summaryTokenCount);
         logger.debug(
-          `[OpenAIClient] Summarization complete: remainingContextTokens: ${remainingContextTokens}, after refining: ${
-            remainingContextTokens - summaryTokenCount
+          `[OpenAIClient] Summarization complete: remainingContextTokens: ${remainingContextTokens}, after refining: ${remainingContextTokens - summaryTokenCount
           }`,
         );
       }
@@ -1254,6 +1252,21 @@ ${convo}
         }),
         apiKey: this.apiKey,
         ...opts,
+      });
+
+      // Log the final request configuration before making the API call
+      logger.debug('[OpenAIClient] Final request configuration:', {
+        baseURL: opts.baseURL,
+        modelOptions,
+        headers: opts.defaultHeaders,
+        query: opts.defaultQuery,
+        organization: opts.organization,
+        stream: modelOptions.stream,
+        messages: modelOptions.messages,
+        prompt: modelOptions.prompt,
+        model: modelOptions.model,
+        temperature: modelOptions.temperature,
+        max_tokens: modelOptions.max_tokens
       });
 
       /* Re-orders system message to the top of the messages payload, as not allowed anywhere else */

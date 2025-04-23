@@ -79,8 +79,7 @@ class ChatGPTClient extends BaseClient {
 
     if (this.maxPromptTokens + this.maxResponseTokens > this.maxContextTokens) {
       throw new Error(
-        `maxPromptTokens + max_tokens (${this.maxPromptTokens} + ${this.maxResponseTokens} = ${
-          this.maxPromptTokens + this.maxResponseTokens
+        `maxPromptTokens + max_tokens (${this.maxPromptTokens} + ${this.maxResponseTokens} = ${this.maxPromptTokens + this.maxResponseTokens
         }) must be less than or equal to maxContextTokens (${this.maxContextTokens})`,
       );
     }
@@ -339,6 +338,15 @@ class ChatGPTClient extends BaseClient {
     opts.body = JSON.stringify(modelOptions);
 
     if (modelOptions.stream) {
+      logger.debug('[ChatGPTClient] Making streaming API call:', {
+        url: completionsURL,
+        modelOptions,
+        headers: opts.headers,
+        body: {
+          ...modelOptions,
+          prompt: modelOptions.prompt?.substring(0, 100) + '...' // Truncate long prompts
+        }
+      });
 
       return new Promise(async (resolve, reject) => {
         try {
@@ -402,6 +410,17 @@ class ChatGPTClient extends BaseClient {
         }
       });
     }
+
+    logger.debug('[ChatGPTClient] Making non-streaming API call:', {
+      url: completionsURL,
+      modelOptions,
+      headers: opts.headers,
+      body: {
+        ...modelOptions,
+        prompt: modelOptions.prompt?.substring(0, 100) + '...' // Truncate long prompts
+      }
+    });
+
     const response = await fetch(completionsURL, {
       ...opts,
       signal: abortController.signal,
@@ -709,9 +728,8 @@ ${botMessage.message}
           message?.isCreatedByUser || message?.role?.toLowerCase() === 'user'
             ? this.userLabel
             : this.chatGptLabel;
-        const messageString = `${this.startToken}${roleLabel}:\n${
-          message?.text ?? message?.message
-        }${this.endToken}\n`;
+        const messageString = `${this.startToken}${roleLabel}:\n${message?.text ?? message?.message
+          }${this.endToken}\n`;
         let newPromptBody;
         if (promptBody || isChatGptModel) {
           newPromptBody = `${messageString}${promptBody}`;

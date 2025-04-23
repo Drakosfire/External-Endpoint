@@ -6,10 +6,25 @@ services:
       - type: bind
         source: ./librechat.yaml
         target: /app/librechat.yaml
+        # Override logging truncations
+      - ./config/parsers.js:/app/config/parsers.js
+      # Override excessive custom config loaded confirmation
+      - ./api/server/services/Config/loadCustomConfig.js:/app/api/server/services/Config/loadCustomConfig.js
+      # File overrides for logging
       - ./api/server/services/Files/Audio/TTSService.js:/app/api/server/services/Files/Audio/TTSService.js
       - ./api/server/routes/files/speech/tts.js:/app/api/server/routes/files/speech/tts.js
       - ./api/server/services/Endpoints/custom/initialize.js:/app/api/server/services/Endpoints/custom/initialize.js
-      - ./api/app/clients/OpenAIClient.js:/app/api/app/clients/OpenAIClient.js
       - ./api/server/services/Config/getCustomConfig.js:/app/api/server/services/Config/getCustomConfig.js
+      # BaseClient is used by all clients trying to capture API calls
+      - ./api/app/clients/BaseClient.js:/app/api/app/clients/BaseClient.js
+      # OpenAIClient is used by all clients trying to capture API calls
+      - ./api/app/clients/OpenAIClient.js:/app/api/app/clients/OpenAIClient.js
+      # ChatGPTClient is used by all clients trying to capture API calls and is the main client for API calls
+      - ./api/app/clients/ChatGPTClient.js:/app/api/app/clients/ChatGPTClient.js
+      # Client.js is for the agents
+      - ./api/server/controllers/agents/client.js:/app/api/server/controllers/agents/client.js
+      # File override to disable streaming
+      - ./api/server/services/Endpoints/openAI/llm.js:/app/api/server/services/Endpoints/openAI/llm.js
+      # Directories being added to the container
       - ./mcp-servers:/app/mcp-servers
       - ./data:/app/data

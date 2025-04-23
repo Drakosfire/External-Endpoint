@@ -127,6 +127,12 @@ class OllamaClient {
     const parameters = ollamaPayloadSchema.parse(payload);
     const messages = OllamaClient.formatOpenAIMessages(payload.messages);
 
+    // Log the request parameters
+    logger.info('[OllamaClient] Request parameters:', {
+      messages,
+      ...parameters,
+    });
+
     if (parameters.stream) {
       const stream = await this.client.chat({
         messages,
