@@ -44,7 +44,7 @@ async function createRun({
   const llmConfig = Object.assign(
     {
       provider,
-      streaming,
+      streaming: agent.tools && agent.tools.length > 0 ? false : streaming,
       streamUsage,
     },
     agent.model_parameters,

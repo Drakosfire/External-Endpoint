@@ -34,7 +34,12 @@ const startServer = async () => {
   }
   await connectDb();
   logger.info('Connected to MongoDB');
-  await indexSync();
+
+  try {
+    await indexSync();
+  } catch (error) {
+    logger.error('Failed to sync MeiliSearch indices, but continuing server startup:', error);
+  }
 
   const app = express();
   app.disable('x-powered-by');

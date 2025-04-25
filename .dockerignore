@@ -12,6 +12,7 @@ meili_data*
 librechat*
 Dockerfile*
 docs
+/mcp-servers/todo-list-mcp
 
 # Ignore all hidden files
 .*

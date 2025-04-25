@@ -14,12 +14,18 @@ class MeiliSearchClient {
   static getInstance() {
     if (!MeiliSearchClient.instance) {
       if (!process.env.MEILI_HOST || !process.env.MEILI_MASTER_KEY) {
-        throw new Error('Meilisearch configuration is missing.');
+        logger.warn('Meilisearch configuration is missing. Search will be disabled.');
+        return null;
       }
-      MeiliSearchClient.instance = new MeiliSearch({
-        host: process.env.MEILI_HOST,
-        apiKey: process.env.MEILI_MASTER_KEY,
-      });
+      try {
+        MeiliSearchClient.instance = new MeiliSearch({
+          host: process.env.MEILI_HOST,
+          apiKey: process.env.MEILI_MASTER_KEY,
+        });
+      } catch (error) {
+        logger.error('[MeiliSearchClient] Failed to initialize client:', error);
+        return null;
+      }
     }
     return MeiliSearchClient.instance;
   }
@@ -32,10 +38,20 @@ async function indexSync() {
 
   try {
     const client = MeiliSearchClient.getInstance();
+    if (!client) {
+      logger.warn('[indexSync] MeiliSearch client not available, skipping sync');
+      return;
+    }
 
-    const { status } = await client.health();
-    if (status !== 'available') {
-      throw new Error('Meilisearch not available');
+    try {
+      const { status } = await client.health();
+      if (status !== 'available') {
+        logger.warn('[indexSync] Meilisearch not available, skipping sync');
+        return;
+      }
+    } catch (error) {
+      logger.warn('[indexSync] Failed to check MeiliSearch health, skipping sync:', error);
+      return;
     }
 
     if (indexingDisabled === true) {

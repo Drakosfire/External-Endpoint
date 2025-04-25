@@ -18,6 +18,16 @@ const AgentController = async (req, res, next, initializeClient, addTitle) => {
     overrideParentMessageId = null,
   } = req.body;
 
+  // Log initial request details
+  logger.debug('[AgentController] Initial request details:', {
+    endpoint: endpointOption?.endpoint,
+    model: endpointOption?.model_parameters?.model,
+    conversationId,
+    parentMessageId,
+    overrideParentMessageId,
+    textLength: text?.length,
+  });
+
   let sender;
   let abortKey;
   let userMessage;
@@ -102,8 +112,21 @@ const AgentController = async (req, res, next, initializeClient, addTitle) => {
 
   try {
     /** @type {{ client: TAgentClient }} */
+    logger.debug('[AgentController] Initializing client with options:', {
+      endpoint: endpointOption?.endpoint,
+      model: endpointOption?.model_parameters?.model,
+      agent: endpointOption?.agent?.id,
+    });
+
     const result = await initializeClient({ req, res, endpointOption });
     client = result.client;
+
+    logger.debug('[AgentController] Client initialized:', {
+      clientType: client?.constructor?.name,
+      clientName: client?.clientName,
+      model: client?.model,
+      endpoint: client?.options?.endpoint,
+    });
 
     // Register client with finalization registry if available
     if (clientRegistry) {
@@ -170,9 +193,20 @@ const AgentController = async (req, res, next, initializeClient, addTitle) => {
       progressOptions: {
         res,
       },
+      stream: false,
     };
 
+    logger.debug('[AgentController] Sending message with options:', {
+      messageOptions,
+    });
+
     let response = await client.sendMessage(text, messageOptions);
+
+    logger.debug('[AgentController] Received response:', {
+      messageId: response.messageId,
+      endpoint: endpointOption.endpoint,
+      hasDatabasePromise: !!response.databasePromise,
+    });
 
     // Extract what we need and immediately break reference
     const messageId = response.messageId;
@@ -188,6 +222,11 @@ const AgentController = async (req, res, next, initializeClient, addTitle) => {
     const conversation = { ...convoData };
     conversation.title =
       conversation && !conversation.title ? null : conversation?.title || 'New Chat';
+
+    logger.debug('[AgentController] Database response:', {
+      conversationId: conversation.conversationId,
+      title: conversation.title,
+    });
 
     // Process files if needed
     if (req.body.files && client.options?.attachments) {
@@ -239,9 +278,6 @@ const AgentController = async (req, res, next, initializeClient, addTitle) => {
         response: { ...response },
         client,
       })
-        .then(() => {
-          logger.debug('[AgentController] Title generation started');
-        })
         .catch((err) => {
           logger.error('[AgentController] Error in title generation', err);
         })

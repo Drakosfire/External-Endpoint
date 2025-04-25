@@ -661,7 +661,7 @@ class AgentClient extends BaseClient {
         },
         recursionLimit: agentsEConfig?.recursionLimit,
         signal: abortController.signal,
-        streamMode: 'values',
+        streamMode: 'false',
         version: 'v2',
       };
 

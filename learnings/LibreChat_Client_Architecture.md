@@ -23,12 +23,19 @@ LibreChat employs different client classes for different types of operations:
 ## API Endpoint Configuration
 
 ### LlamaCpp Server Integration
-- Important: When configuring LlamaCpp server in `librechat.yaml`, the endpoint must end with `/completions`
-- Example configuration:
+- Regular endpoints must end with `/completions`
+- Agent endpoints should NOT include `/completions`
+- Example configurations:
   ```yaml
+  # Regular endpoint
   endpoints:
     llamacpp:
       url: "http://host.docker.internal:8001/completions"
+
+  # Agent endpoint
+  endpoints:
+    llamacpp_agent:
+      url: "http://host.docker.internal:8001"
   ```
 
 ### Request Flow
