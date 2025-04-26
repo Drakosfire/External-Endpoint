@@ -18,10 +18,10 @@ speech:
 mcpServers:
   memory:
     type: stdio
-    command: npm
+    command: npx
     args:
-      - run
-      
+      - -y
+      - "@modelcontextprotocol/server-memory"
     timeout: 30000
     initTimeout: 10000
     env:
