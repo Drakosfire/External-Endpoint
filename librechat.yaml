@@ -1,0 +1,30 @@
+version: 1.0.8
+
+speech:
+  stt:
+    openai:
+      apiKey: '${STT_API_KEY}'
+      model: 'whisper-1'
+  speechTab:
+    conversationMode: true
+    advancedMode: false
+    speechToText:
+      engineSTT: "openai"
+      languageSTT: "English (US)"
+      autoTranscribeAudio: true
+      decibelValue: -45
+      autoSendText: 0
+
+mcpServers:
+  memory:
+    type: stdio
+    command: npm
+    args:
+      - run
+      
+    timeout: 30000
+    initTimeout: 10000
+    env:
+      NODE_ENV: "production"
+      MEMORY_FILE_PATH: "./memory.json"
+    stderr: inherit
