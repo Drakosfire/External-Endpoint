@@ -6,7 +6,9 @@ services:
       - type: bind
         source: ./librechat.yaml
         target: /app/librechat.yaml
-        # Override logging truncations
+      - ../Sizzek/mcp-servers:/app/mcp-servers
+      - ../Sizzek/memory_files:/app/data
+      # Override logging truncations
       - ./config/parsers.js:/app/config/parsers.js
       # Override excessive custom config loaded confirmation
       - ./api/server/services/Config/loadCustomConfig.js:/app/api/server/services/Config/loadCustomConfig.js
@@ -30,9 +32,8 @@ services:
       # File overrid to add logging to request
       # - ./api/server/controllers/agents/request.js:/app/api/server/controllers/agents/request.js
       # Directories being added to the container
-      - ./mcp-servers:/app/mcp-servers
-      - ./data:/app/data
-    # build:
-    #   context: .
-    #   dockerfile: Dockerfile
-    # image: null # This will override the image from the base compose file
+
+      # build:
+      #   context: .
+      #   dockerfile: Dockerfile
+      # image: null # This will override the image from the base compose file

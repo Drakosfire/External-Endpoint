@@ -1,5 +1,21 @@
 version: 1.0.8
 
+endpoints:
+  custom:
+    - name: 'llamacpp'
+      baseURL: "http://host.docker.internal:8001/completions"
+      apiKey: 'not-needed'
+      models:
+        default: ['BitAgent-8B.Q8_0.gguf', 'Llama-xLAM-2-8B-fc-r-Q8_0.gguf', 'watt-tool-8B.Q8_0.gguf']
+        fetch: false
+      titleConvo: false
+      titleModel: 'BitAgent-8B.Q8_0.gguf'   # Replace with your actual model name
+      modelDisplayLabel: 'LlamaCPP'
+      forcePrompt: true
+      directEndpoint: true
+      addParams:
+        stream: false
+      dropParams: ["stop", "user", "frequency_penalty", "presence_penalty"]
 speech:
   stt:
     openai:
@@ -18,13 +34,12 @@ speech:
 mcpServers:
   memory:
     type: stdio
-    command: npx
+    command: node
     args:
-      - -y
-      - "@modelcontextprotocol/server-memory"
+      - "/app/mcp-servers/memory/src/memory/dist/index.js"
     timeout: 30000
     initTimeout: 10000
     env:
-      NODE_ENV: "production"
-      MEMORY_FILE_PATH: "./memory.json"
+        NODE_ENV: "production"
+        MEMORY_FILE_PATH: "/app/data/memory.json"
     stderr: inherit
