@@ -6,6 +6,7 @@ services:
       - type: bind
         source: ./librechat.yaml
         target: /app/librechat.yaml
+      #mcp servers are stored in the collaborator directory to seperate client files from the mcp server and tool libraries
       - ../Sizzek/mcp-servers:/app/mcp-servers
       - ../Sizzek/memory_files:/app/data
       # Override logging truncations

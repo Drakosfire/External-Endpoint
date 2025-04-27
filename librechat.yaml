@@ -46,6 +46,18 @@ mcpServers:
     timeout: 30000
     initTimeout: 10000
     env:
-        NODE_ENV: "production"
+        # NODE_ENV: "production"
         MEMORY_FILE_PATH: "/app/data/memory.json"
+    stderr: inherit
+
+  todoodles:
+    type: stdio
+    command: node
+    args:
+      - "/app/mcp-servers/todoodles/dist/index.js"
+    timeout: 30000
+    initTimeout: 10000
+    env:
+        # NODE_ENV: "production"
+        TODOS_FILE_PATH: "/app/data/todoodles.json"
     stderr: inherit
