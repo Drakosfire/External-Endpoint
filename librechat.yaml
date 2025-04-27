@@ -21,6 +21,12 @@ speech:
     openai:
       apiKey: '${STT_API_KEY}'
       model: 'whisper-1'
+  tts:
+    localai:
+      url: "http://host.docker.internal:8002/v1/audio/speech/stream"
+      voices: ["test_voice", "Karlach_v1", "Gale_v1", "Astarion_v1", "Kirkv1"]
+      backend: 'zonos'
+      apiKey: ''  # Zonos API doesn't require authentication
   speechTab:
     conversationMode: true
     advancedMode: false
