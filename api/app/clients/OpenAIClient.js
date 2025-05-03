@@ -125,6 +125,7 @@ class OpenAIClient extends BaseClient {
 
     if (this.options.endpoint?.toLowerCase() === 'ollama') {
       this.isOllama = true;
+      logger.debug('Ollama endpoint detected');
     }
 
     this.FORCE_PROMPT =

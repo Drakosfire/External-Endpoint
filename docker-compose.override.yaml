@@ -21,7 +21,7 @@ services:
       # BaseClient is used by all clients trying to capture API calls
       # - ./api/app/clients/BaseClient.js:/app/api/app/clients/BaseClient.js
       # OpenAIClient is used by all clients trying to capture API calls
-      # - ./api/app/clients/OpenAIClient.js:/app/api/app/clients/OpenAIClient.js
+      - ./api/app/clients/OpenAIClient.js:/app/api/app/clients/OpenAIClient.js
       # ChatGPTClient is used by all clients trying to capture API calls and is the main client for API calls
       # - ./api/app/clients/ChatGPTClient.js:/app/api/app/clients/ChatGPTClient.js
       # Client.js is for the agents
