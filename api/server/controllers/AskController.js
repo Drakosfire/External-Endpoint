@@ -252,7 +252,12 @@ const AskController = async (req, res, next, initializeClient, addTitle) => {
       performCleanup();
     }
   } catch (error) {
-    logger.error('[AskController] Error handling request', error);
+    logger.error('[AskController] Error handling request', {
+      error,
+      endpoint: endpointOption?.endpoint,
+      baseURL: endpointOption?.baseURL,
+      model: endpointOption?.modelOptions?.model,
+    });
     let partialText = '';
     try {
       const currentClient = clientRef?.deref();

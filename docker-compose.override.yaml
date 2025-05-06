@@ -6,22 +6,24 @@ services:
       - type: bind
         source: ./librechat.yaml
         target: /app/librechat.yaml
+
       #mcp servers are stored in the collaborator directory to seperate client files from the mcp server and tool libraries
       - ../Sizzek/mcp-servers:/app/mcp-servers
       - ../Sizzek/memory_files:/app/data
       # Override logging truncations
-      - ./config/parsers.js:/app/config/parsers.js
-      # Override excessive custom config loaded confirmation
-      - ./api/server/services/Config/loadCustomConfig.js:/app/api/server/services/Config/loadCustomConfig.js
-      # File overrides for logging
-      - ./api/server/services/Files/Audio/TTSService.js:/app/api/server/services/Files/Audio/TTSService.js
-      - ./api/server/routes/files/speech/tts.js:/app/api/server/routes/files/speech/tts.js
-      - ./api/server/services/Endpoints/custom/initialize.js:/app/api/server/services/Endpoints/custom/initialize.js
-      # - ./api/server/services/Config/getCustomConfig.js:/app/api/server/services/Config/getCustomConfig.js
-      # BaseClient is used by all clients trying to capture API calls
-      # - ./api/app/clients/BaseClient.js:/app/api/app/clients/BaseClient.js
-      # OpenAIClient is used by all clients trying to capture API calls
+      # - ./config/parsers.js:/app/config/parsers.js
+      # # Override excessive custom config loaded confirmation
+      # - ./api/server/services/Config/loadCustomConfig.js:/app/api/server/services/Config/loadCustomConfig.js
+      # # File overrides for logging
+      # - ./api/server/services/Files/Audio/TTSService.js:/app/api/server/services/Files/Audio/TTSService.js
+      # - ./api/server/routes/files/speech/tts.js:/app/api/server/routes/files/speech/tts.js
+      # - ./api/server/services/Endpoints/custom/initialize.js:/app/api/server/services/Endpoints/custom/initialize.js
+      # # - ./api/server/services/Config/getCustomConfig.js:/app/api/server/services/Config/getCustomConfig.js
+      # # BaseClient is used by all clients trying to capture API calls
+      # # - ./api/app/clients/BaseClient.js:/app/api/app/clients/BaseClient.js
+      # # OpenAIClient is used by all clients trying to capture API calls
       - ./api/app/clients/OpenAIClient.js:/app/api/app/clients/OpenAIClient.js
+      # Ollama Client in case that
       # ChatGPTClient is used by all clients trying to capture API calls and is the main client for API calls
       # - ./api/app/clients/ChatGPTClient.js:/app/api/app/clients/ChatGPTClient.js
       # Client.js is for the agents

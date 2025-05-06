@@ -122,18 +122,21 @@ class OllamaClient {
    * @param {AbortController} params.abortController
    */
   async chatCompletion({ payload, onProgress, abortController = null }) {
-    let intermediateReply = '';
+    try {
+      let intermediateReply = '';
 
-    const parameters = ollamaPayloadSchema.parse(payload);
-    const messages = OllamaClient.formatOpenAIMessages(payload.messages);
+      const parameters = ollamaPayloadSchema.parse(payload);
+      const messages = OllamaClient.formatOpenAIMessages(payload.messages);
 
-    // Log the request parameters
-    logger.info('[OllamaClient] Request parameters:', {
-      messages,
-      ...parameters,
-    });
+      // Ensure stream is set correctly
+      parameters.stream = true;
 
-    if (parameters.stream) {
+      // Log the request parameters
+      logger.info('[OllamaClient] Request parameters:', {
+        messages,
+        ...parameters,
+      });
+
       const stream = await this.client.chat({
         messages,
         ...parameters,
@@ -143,24 +146,19 @@ class OllamaClient {
         const token = chunk.message.content;
         intermediateReply += token;
         onProgress(token);
-        if (abortController.signal.aborted) {
+        if (abortController?.signal?.aborted) {
           stream.controller.abort();
           break;
         }
 
         await sleep(this.streamRate);
       }
-    }
-    // TODO: regular completion
-    else {
-      // const generation = await this.client.generate(payload);
-    }
 
-    return intermediateReply;
-  }
-  catch(err) {
-    logger.error('[OllamaClient.chatCompletion]', err);
-    throw err;
+      return intermediateReply;
+    } catch (err) {
+      logger.error('[OllamaClient.chatCompletion]', err);
+      throw err;
+    }
   }
 }
 

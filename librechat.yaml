@@ -3,7 +3,7 @@ version: 1.0.8
 endpoints:
   custom:
     - name: 'llamacpp'
-      baseURL: "http://host.docker.internal:8001/"
+      baseURL: "http://host.docker.internal:8080/completion"
       apiKey: 'not-needed'
       models:
         default: ['BitAgent-8B.Q8_0.gguf', 'Llama-xLAM-2-8B-fc-r-Q8_0.gguf', 'watt-tool-8B.Q8_0.gguf']
@@ -14,33 +14,24 @@ endpoints:
       forcePrompt: true
       directEndpoint: true
       addParams:
-        stream: false
+        stream: true
       dropParams: ["stop", "user", "frequency_penalty", "presence_penalty"]
+      headers:
+        Authorization: "Bearer no-key"
     
     - name: "ollama"
       apiKey: "ollama"
-      baseURL: "http://172.17.0.1:11434/v1/chat/completions"
+      baseURL: "http://host.docker.internal:11434"
       models:
-        default: ["xLAM-2-8B", "bitagent", phi4-mini]
+        default: ["xLAM-2-8B", "bitagent", "phi4-mini"]
         fetch: true
-      titleConvo: true
+      titleConvo: false
       titleModel: "current_model"
       summarize: false
       summaryModel: "current_model"
       forcePrompt: false
       modelDisplayLabel: "Ollama"
-      directEndpoint: true
-      addParams:
-        stream: true
-        stop: [
-          "<|start_header_id|>",
-          "<|end_header_id|>",
-          "<|eot_id|>",
-          "<|reserved_special_token"
-        ]
-      tools: true  # Enable tools support
-      tool_choice: "auto"  # Allow the model to choose tools automatically
-      dropParams: ["tools", "tool_choice"]
+      
 speech:
   stt:
     openai:

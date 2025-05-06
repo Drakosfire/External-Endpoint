@@ -126,6 +126,7 @@ class OpenAIClient extends BaseClient {
     if (this.options.endpoint?.toLowerCase() === 'ollama') {
       this.isOllama = true;
       logger.debug('Ollama endpoint detected');
+      console.log('ollama');
     }
 
     this.FORCE_PROMPT =
@@ -453,9 +454,6 @@ class OpenAIClient extends BaseClient {
         for (const file of attachments) {
           if (file.embedded) {
             this.contextHandlers?.processFile(file);
-            continue;
-          }
-          if (file.metadata?.fileIdentifier) {
             continue;
           }
 
@@ -1346,6 +1344,7 @@ ${convo}
       const streamRate = this.options.streamRate ?? Constants.DEFAULT_STREAM_RATE;
 
       if (this.message_file_map && this.isOllama) {
+        console.log('ollama');
         const ollamaClient = new OllamaClient({ baseURL, streamRate });
         return await ollamaClient.chatCompletion({
           payload: modelOptions,
