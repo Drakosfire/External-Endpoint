@@ -35,6 +35,8 @@ services:
     volumes:
       - ./data-node:/data/db
     command: mongod --noauth
+    ports:
+      - "127.0.0.1:27018:27017" # Only accessible from localhost
   meilisearch:
     container_name: chat-meilisearch
     image: getmeili/meilisearch:v1.12.3

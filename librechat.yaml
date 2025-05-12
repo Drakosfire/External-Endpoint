@@ -21,9 +21,9 @@ endpoints:
     
     - name: "ollama"
       apiKey: "ollama"
-      baseURL: "http://host.docker.internal:11434"
+      baseURL: "http://172.17.0.1:11434/v1"
       models:
-        default: ["xLAM-2-8B", "bitagent", "phi4-mini"]
+        default: [ "bitagent", "qwen3:14b", "phi4-mini", qwen2.5:14b, xlam-2-3b]
         fetch: true
       titleConvo: false
       titleModel: "current_model"
@@ -58,22 +58,28 @@ mcpServers:
     type: stdio
     command: node
     args:
-      - "/app/mcp-servers/memory/src/memory/dist/index.js"
+      - "../Sizzek/mcp-servers/memory/src/memory/dist/index.js"
     timeout: 30000
     initTimeout: 10000
     env:
         # NODE_ENV: "production"
-        MEMORY_FILE_PATH: "/app/data/memory.json"
+        MEMORY_FILE_PATH: "/media/drakosfire/Shared/Projects/Sizzek/memory_files/memory.json"
     stderr: inherit
 
   todoodles:
     type: stdio
     command: node
     args:
-      - "/app/mcp-servers/todoodles/dist/index.js"
+      - "../Sizzek/mcp-servers/todoodles/dist/index.js"
     timeout: 30000
     initTimeout: 10000
     env:
         # NODE_ENV: "production"
-        TODOS_FILE_PATH: "/app/data/todoodles.json"
+        TODOS_FILE_PATH: "/media/drakosfire/Shared/Projects/Sizzek/memory_files/todoodles.json"
     stderr: inherit
+
+  twilio-sms:
+    type: stdio
+    command: node
+    args:
+      - "../Sizzek/mcp-servers/twilio-sms/dist/index.js"
