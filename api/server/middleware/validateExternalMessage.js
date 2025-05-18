@@ -7,7 +7,7 @@ const { logger } = require('~/config');
  * @param {Function} next - Express next function
  */
 const validateExternalMessage = async (req, res, next) => {
-    const apiKey = req.headers['x-internal-api-key'];
+    const apiKey = req.headers['x-api-key'];
 
     if (!apiKey) {
         logger.warn('API key missing from request');
