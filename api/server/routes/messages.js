@@ -19,6 +19,7 @@ const { logger } = require('~/config');
 const { Conversation } = require('~/models/Conversation');
 const { v4: uuidv4 } = require('uuid');
 const { sendEvent } = require('~/config');
+const { addClient, removeClient, broadcastToUsers } = require('~/server/sseClients');
 
 const router = express.Router();
 
@@ -243,6 +244,7 @@ router.post('/:conversationId/external', validateExternalMessage, async (req, re
     logger.info('[External Message] Message to be saved:', JSON.stringify(message, null, 2));
 
     logger.info('[External Message] Attempting to save message');
+    req.user = { id: 'system' };
     const savedMessage = await saveMessage(
       req,
       message,
@@ -264,36 +266,18 @@ router.post('/:conversationId/external', validateExternalMessage, async (req, re
       { new: true }
     );
 
-    // Send SSE event for real-time UI update
-    logger.info('[External Message] Attempting to send SSE event');
-    try {
-      const eventData = {
-        event: 'message',
-        data: {
-          type: 'external',
-          message: savedMessage,
-          conversationId: req.params.conversationId
-        }
-      };
-      logger.info('[External Message] SSE event data:', eventData);
-
-      // Set SSE headers
-      res.setHeader('Content-Type', 'text/event-stream');
-      res.setHeader('Cache-Control', 'no-cache');
-      res.setHeader('Connection', 'keep-alive');
-
-      // Send the event
-      res.write(`event: ${eventData.event}\ndata: ${JSON.stringify(eventData.data)}\n\n`);
-      logger.info('[External Message] SSE event sent successfully');
-
-      // End the response
-      res.end();
-    } catch (error) {
-      logger.error('[External Message] Error sending SSE event:', error);
-      return res.status(500).json({ error: 'Error sending SSE event' });
+    // Broadcast to allowed users (single-user: conversation owner)
+    const conversation = await Conversation.findOne({ conversationId: req.params.conversationId });
+    let allowedUserIds = [];
+    if (conversation && conversation.user) {
+      allowedUserIds = [conversation.user.toString()];
     }
+    broadcastToUsers(allowedUserIds, 'newMessage', {
+      conversationId: savedMessage.conversationId,
+      message: savedMessage,
+    });
 
-    logger.info('[External Message] External message injection completed successfully');
+    res.status(201).json(savedMessage);
   } catch (error) {
     logger.error('[External Message] Error saving external message:', error);
     logger.error('[External Message] Error stack:', error.stack);
@@ -378,24 +362,17 @@ router.delete('/:conversationId/:messageId', validateMessageReq, async (req, res
   }
 });
 
-// Add SSE stream endpoint
 router.get('/stream', requireJwtAuth, (req, res) => {
-  // Set SSE headers
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
 
-  // Send initial connection message
-  res.write('event: connected\ndata: connected\n\n');
-
-  // Keep the connection alive
-  const keepAlive = setInterval(() => {
-    res.write(': keepalive\n\n');
-  }, 30000);
-
-  // Clean up on client disconnect
+  const userId = req.user.id;
+  addClient(userId, res);
+  logger.info(`[SSE] Added client for user: ${userId}`);
   req.on('close', () => {
-    clearInterval(keepAlive);
+    removeClient(userId, res);
   });
 });
 

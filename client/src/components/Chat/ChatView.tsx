@@ -1,4 +1,4 @@
-import { memo, useCallback } from 'react';
+import { memo, useCallback, useEffect } from 'react';
 import { useRecoilValue } from 'recoil';
 import { useForm } from 'react-hook-form';
 import { useParams } from 'react-router-dom';
@@ -18,6 +18,8 @@ import Landing from './Landing';
 import Header from './Header';
 import Footer from './Footer';
 import store from '~/store';
+import { useQueryClient } from '@tanstack/react-query';
+import React from 'react';
 
 function LoadingSpinner() {
   return (
@@ -31,6 +33,7 @@ function LoadingSpinner() {
 
 function ChatView({ index = 0 }: { index?: number }) {
   const { conversationId } = useParams();
+  const queryClient = useQueryClient();
   const rootSubmission = useRecoilValue(store.submissionByIndex(index));
   const addedSubmission = useRecoilValue(store.submissionByIndex(index + 1));
   const centerFormOnLanding = useRecoilValue(store.centerFormOnLanding);
@@ -63,6 +66,22 @@ function ChatView({ index = 0 }: { index?: number }) {
     (!messagesTree || messagesTree.length === 0) &&
     (conversationId === Constants.NEW_CONVO || !conversationId);
   const isNavigating = (!messagesTree || messagesTree.length === 0) && conversationId != null;
+
+  // Real-time SSE subscription for new messages
+  // Invalidate the messages query for the current conversation on newMessage event
+  React.useEffect(() => {
+    if (!conversationId) return;
+    const sse = new EventSource('/api/messages/stream');
+    sse.addEventListener('newMessage', (event) => {
+      console.log('SSE newMessage event:', event.data);
+      const data = JSON.parse(event.data);
+      if (data.conversationId === conversationId) {
+        console.log('Invalidating query for conversation:', conversationId);
+        queryClient.invalidateQueries(['messages', conversationId]);
+      }
+    });
+    return () => sse.close();
+  }, [conversationId, queryClient]);
 
   if (isLoading && conversationId !== Constants.NEW_CONVO) {
     content = <LoadingSpinner />;

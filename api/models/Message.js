@@ -34,7 +34,7 @@ const idSchema = z.string().uuid();
  * @throws {Error} If there is an error in saving the message.
  */
 async function saveMessage(req, params, metadata) {
-  if (!req?.user?.id) {
+  if (!req?.user?.id && !(req.body && req.body.role === 'external' && req.body.user === 'system')) {
     throw new Error('User not authenticated');
   }
 
