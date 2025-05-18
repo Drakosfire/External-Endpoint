@@ -10,14 +10,26 @@ const {
 } = require('~/models');
 const { findAllArtifacts, replaceArtifactContent } = require('~/server/services/Artifacts/update');
 const { requireJwtAuth, validateMessageReq } = require('~/server/middleware');
+const validateExternalMessage = require('../middleware/validateExternalMessage');
 const { cleanUpPrimaryKeyValue } = require('~/lib/utils/misc');
 const { getConvosQueried } = require('~/models/Conversation');
 const { countTokens } = require('~/server/utils');
 const { Message } = require('~/models/Message');
 const { logger } = require('~/config');
+const { Conversation } = require('~/models/Conversation');
+const { v4: uuidv4 } = require('uuid');
+const { sendEvent } = require('~/config');
 
 const router = express.Router();
-router.use(requireJwtAuth);
+
+// Apply JWT auth to all routes except external
+router.use((req, res, next) => {
+  if (req.path.endsWith('/external')) {
+    next();
+  } else {
+    requireJwtAuth(req, res, next);
+  }
+});
 
 router.get('/', async (req, res) => {
   try {
@@ -187,6 +199,108 @@ router.post('/:conversationId', validateMessageReq, async (req, res) => {
   }
 });
 
+router.post('/:conversationId/external', validateExternalMessage, async (req, res) => {
+  try {
+    logger.info('[External Message] Starting external message injection');
+    logger.info('[External Message] Request body:', req.body);
+    logger.info('[External Message] Conversation ID:', req.params.conversationId);
+    logger.info('[External Message] Is service request:', req.isServiceRequest);
+
+    const { role, content } = req.body;
+    if (role !== 'external') {
+      logger.warn('[External Message] Invalid role:', role);
+      return res.status(400).json({ error: 'Role must be external' });
+    }
+
+    // Fetch the last message in the conversation
+    logger.info('[External Message] Fetching last message in conversation');
+    const lastMessage = await Message.findOne(
+      { conversationId: req.params.conversationId },
+      {},
+      { sort: { createdAt: -1 } }
+    );
+    logger.info('[External Message] Last message found:', lastMessage ? 'yes' : 'no');
+
+    const messageId = uuidv4();
+    // Ensure content is always an array of objects
+    const formattedContent = Array.isArray(content) && content[0]?.type && content[0]?.text
+      ? content
+      : [{ type: 'text', text: content }];
+
+    const message = {
+      ...req.body,
+      conversationId: req.params.conversationId,
+      role: 'external',
+      isCreatedByUser: false,
+      text: typeof content === 'string' ? content : (content?.text || ''),
+      messageId,
+      parentMessageId: lastMessage ? lastMessage.messageId : null,
+      content: formattedContent,
+      user: 'system' // Set a system user for service requests
+    };
+
+    // Debug log
+    logger.info('[External Message] Message to be saved:', JSON.stringify(message, null, 2));
+
+    logger.info('[External Message] Attempting to save message');
+    const savedMessage = await saveMessage(
+      req,
+      message,
+      { context: 'POST /api/messages/:conversationId/external' }
+    );
+
+    if (!savedMessage) {
+      logger.error('[External Message] Message save failed - no saved message returned');
+      return res.status(400).json({ error: 'Message not saved' });
+    }
+
+    logger.info('[External Message] Message saved successfully:', JSON.stringify(savedMessage, null, 2));
+
+    // Only update the conversation's timestamp
+    logger.info('[External Message] Updating conversation timestamp');
+    await Conversation.findOneAndUpdate(
+      { conversationId: req.params.conversationId },
+      { $set: { updatedAt: new Date() } },
+      { new: true }
+    );
+
+    // Send SSE event for real-time UI update
+    logger.info('[External Message] Attempting to send SSE event');
+    try {
+      const eventData = {
+        event: 'message',
+        data: {
+          type: 'external',
+          message: savedMessage,
+          conversationId: req.params.conversationId
+        }
+      };
+      logger.info('[External Message] SSE event data:', eventData);
+
+      // Set SSE headers
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+
+      // Send the event
+      res.write(`event: ${eventData.event}\ndata: ${JSON.stringify(eventData.data)}\n\n`);
+      logger.info('[External Message] SSE event sent successfully');
+
+      // End the response
+      res.end();
+    } catch (error) {
+      logger.error('[External Message] Error sending SSE event:', error);
+      return res.status(500).json({ error: 'Error sending SSE event' });
+    }
+
+    logger.info('[External Message] External message injection completed successfully');
+  } catch (error) {
+    logger.error('[External Message] Error saving external message:', error);
+    logger.error('[External Message] Error stack:', error.stack);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 router.get('/:conversationId/:messageId', validateMessageReq, async (req, res) => {
   try {
     const { conversationId, messageId } = req.params;
@@ -262,6 +376,27 @@ router.delete('/:conversationId/:messageId', validateMessageReq, async (req, res
     logger.error('Error deleting message:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
+});
+
+// Add SSE stream endpoint
+router.get('/stream', requireJwtAuth, (req, res) => {
+  // Set SSE headers
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+
+  // Send initial connection message
+  res.write('event: connected\ndata: connected\n\n');
+
+  // Keep the connection alive
+  const keepAlive = setInterval(() => {
+    res.write(': keepalive\n\n');
+  }, 30000);
+
+  // Clean up on client disconnect
+  req.on('close', () => {
+    clearInterval(keepAlive);
+  });
 });
 
 module.exports = router;

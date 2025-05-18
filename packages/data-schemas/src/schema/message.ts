@@ -17,6 +17,7 @@ export interface IMessage extends Document {
   text?: string;
   summary?: string;
   isCreatedByUser: boolean;
+  role?: 'user' | 'assistant' | 'system' | 'external';
   unfinished?: boolean;
   error?: boolean;
   finish_reason?: string;
@@ -98,6 +99,11 @@ const messageSchema: Schema<IMessage> = new Schema(
       type: Boolean,
       required: true,
       default: false,
+    },
+    role: {
+      type: String,
+      enum: ['user', 'assistant', 'system', 'external'],
+      required: false,
     },
     unfinished: {
       type: Boolean,
