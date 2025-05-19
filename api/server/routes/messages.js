@@ -169,7 +169,28 @@ router.post('/artifact/:messageId', async (req, res) => {
   }
 });
 
-/* Note: It's necessary to add `validateMessageReq` within route definition for correct params */
+router.get('/stream', requireJwtAuth, (req, res) => {
+  // Log the user object attached by Passport
+  console.log('[SSE /stream] req.user:', req.user);
+  // Optionally, log the cookies and headers
+  console.log('[SSE /stream] req.cookies:', req.cookies);
+  console.log('[SSE /stream] req.headers:', req.headers);
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  const userId = req.user.id;
+  addClient(userId, res);
+  logger.info(`[SSE] Added client for user: ${userId}`);
+
+  req.on('close', () => {
+    removeClient(userId, res);
+    logger.info(`[SSE] Connection closed for user: ${userId}`);
+  });
+});
+
 router.get('/:conversationId', validateMessageReq, async (req, res) => {
   try {
     const { conversationId } = req.params;
@@ -360,20 +381,6 @@ router.delete('/:conversationId/:messageId', validateMessageReq, async (req, res
     logger.error('Error deleting message:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
-});
-
-router.get('/stream', requireJwtAuth, (req, res) => {
-  res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache');
-  res.setHeader('Connection', 'keep-alive');
-  res.flushHeaders();
-
-  const userId = req.user.id;
-  addClient(userId, res);
-  logger.info(`[SSE] Added client for user: ${userId}`);
-  req.on('close', () => {
-    removeClient(userId, res);
-  });
 });
 
 module.exports = router;

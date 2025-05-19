@@ -20,6 +20,7 @@ import Footer from './Footer';
 import store from '~/store';
 import { useQueryClient } from '@tanstack/react-query';
 import React from 'react';
+import { useAuthContext } from '~/hooks/AuthContext';
 
 function LoadingSpinner() {
   return (
@@ -34,6 +35,7 @@ function LoadingSpinner() {
 function ChatView({ index = 0 }: { index?: number }) {
   const { conversationId } = useParams();
   const queryClient = useQueryClient();
+  const { token } = useAuthContext();
   const rootSubmission = useRecoilValue(store.submissionByIndex(index));
   const addedSubmission = useRecoilValue(store.submissionByIndex(index + 1));
   const centerFormOnLanding = useRecoilValue(store.centerFormOnLanding);
@@ -70,8 +72,11 @@ function ChatView({ index = 0 }: { index?: number }) {
   // Real-time SSE subscription for new messages
   // Invalidate the messages query for the current conversation on newMessage event
   React.useEffect(() => {
-    if (!conversationId) return;
-    const sse = new EventSource('/api/messages/stream');
+    if (!conversationId || !token) return;
+
+    const sse = new EventSource(`/api/messages/stream?token=${token}`);
+    console.log('SSE URL:', `/api/messages/stream?token=${token}`);
+
     sse.addEventListener('newMessage', (event) => {
       console.log('SSE newMessage event:', event.data);
       const data = JSON.parse(event.data);
@@ -80,8 +85,16 @@ function ChatView({ index = 0 }: { index?: number }) {
         queryClient.invalidateQueries(['messages', conversationId]);
       }
     });
-    return () => sse.close();
-  }, [conversationId, queryClient]);
+
+    sse.addEventListener('error', (error) => {
+      console.error('SSE Error:', error);
+      sse.close();
+    });
+
+    return () => {
+      sse.close();
+    };
+  }, [conversationId, queryClient, token]);
 
   if (isLoading && conversationId !== Constants.NEW_CONVO) {
     content = <LoadingSpinner />;
