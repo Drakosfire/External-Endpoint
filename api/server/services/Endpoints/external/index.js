@@ -2,6 +2,7 @@ const BaseClient = require('~/app/clients/BaseClient');
 const { logger } = require('~/config');
 const { v4: uuidv4 } = require('uuid');
 const { saveMessage, getUserById } = require('~/models');
+const { getConvo } = require('~/models/Conversation');
 const { broadcastToUsers } = require('~/server/sseClients');
 const { SystemRoles } = require('librechat-data-provider');
 
@@ -42,21 +43,44 @@ class ExternalClient extends BaseClient {
 
     async initialize() {
         logger.info('[ExternalClient] Initializing client');
-        logger.info('[ExternalClient] Client options:', this.options);
+        // Log only the relevant options without the request/response objects
+        const { req, res, ...loggableOptions } = this.options;
+        logger.info('[ExternalClient] Client options:', JSON.stringify(loggableOptions, null, 2));
+        logger.info('[ExternalClient] Request object:', this.req ? 'Present' : 'Missing');
+        logger.info('[ExternalClient] Response object:', this.res ? 'Present' : 'Missing');
 
         if (!this.req || !this.res) {
             throw new Error('Request and response objects are required for ExternalClient initialization');
         }
 
         // First try to get user from options
+        logger.info('[ExternalClient] Checking options.user:', this.options.user);
         if (this.options.user) {
             this.user = this.options.user;
             logger.info('[ExternalClient] Using user from options:', this.user);
         }
 
-        // If no user in options, try to recover from JWT token
+        // If no user in options, try to get from conversation owner
+        logger.info('[ExternalClient] Checking conversationId:', this.options.conversationId);
+        if (!this.user && this.options.conversationId) {
+            try {
+                logger.info('[ExternalClient] Attempting to get conversation:', this.options.conversationId);
+                const conversation = await getConvo(null, this.options.conversationId);
+                logger.info('[ExternalClient] Conversation found:', conversation ? 'Yes' : 'No');
+                if (conversation && conversation.user) {
+                    this.user = conversation.user;
+                    logger.info('[ExternalClient] Using user from conversation owner:', this.user);
+                }
+            } catch (err) {
+                logger.warn('[ExternalClient] Failed to get user from conversation:', err);
+            }
+        }
+
+        // If still no user, try to recover from JWT token
         if (!this.user) {
+            logger.info('[ExternalClient] Attempting to extract JWT token');
             const token = extractJwtToken(this.req);
+            logger.info('[ExternalClient] JWT token found:', token ? 'Yes' : 'No');
             if (token) {
                 try {
                     const jwt = require('jsonwebtoken');
@@ -72,12 +96,14 @@ class ExternalClient extends BaseClient {
         }
 
         // If still no user, try to get from request
+        logger.info('[ExternalClient] Checking req.user:', this.req.user ? 'Present' : 'Missing');
         if (!this.user && this.req.user) {
             this.user = this.req.user.id;
             logger.info('[ExternalClient] Using user from request:', this.user);
         }
 
         // If still no user, try to get from API key
+        logger.info('[ExternalClient] Checking API key:', this.apiKey ? 'Present' : 'Missing');
         if (!this.user && this.apiKey) {
             try {
                 const user = await getUserById(this.apiKey);
@@ -105,6 +131,20 @@ class ExternalClient extends BaseClient {
         });
     }
 
+    // Helper function to map roles to valid OpenAI roles
+    mapRoleToOpenAI(role) {
+        const roleMap = {
+            'external': 'user',  // Map external messages to user role
+            'assistant': 'assistant',
+            'system': 'system',
+            'user': 'user',
+            'function': 'function',
+            'tool': 'tool',
+            'developer': 'developer'
+        };
+        return roleMap[role] || 'user';  // Default to user role if unknown
+    }
+
     async sendMessage(message, opts = {}) {
         logger.info('[ExternalClient] Processing external message');
         logger.info('[ExternalClient] Options:', {
@@ -128,7 +168,8 @@ class ExternalClient extends BaseClient {
             messageId: uuidv4(),
             conversationId,
             parentMessageId,
-            role: 'external',
+            role: 'external',  // Keep original role for our internal use
+            openAIRole: this.mapRoleToOpenAI('external'),  // Add mapped role for OpenAI
             isCreatedByUser: false,
             text: typeof message === 'string' ? message : (message?.text || ''),
             content: Array.isArray(message?.content) ? message.content : [{ type: 'text', text: message }],
@@ -199,25 +240,40 @@ class ExternalClient extends BaseClient {
     }
 
     async processWithLLM(message, opts = {}) {
+        // Get the conversation to determine the correct endpoint type
+        const conversation = await getConvo(null, message.conversationId);
+        if (!conversation) {
+            throw new Error('Conversation not found');
+        }
+
+        // Use the conversation's endpoint type for LLM initialization
+        const llmEndpointType = conversation.endpointType || conversation.endpoint;
+        logger.info('[ExternalClient] Using LLM endpoint type:', llmEndpointType);
+
         // Get the appropriate LLM client based on conversation endpoint
-        const { initializeClient: initializeLLMClient } = require(`~/server/services/Endpoints/${this.endpointType}/initialize`);
+        const initializeModule = require(`~/server/services/Endpoints/${llmEndpointType}/initialize`);
+        const initializeLLMClient = initializeModule.initializeClient || initializeModule;
+
+        if (typeof initializeLLMClient !== 'function') {
+            throw new Error(`Failed to load LLM client initializer for endpoint type: ${llmEndpointType}`);
+        }
 
         // Prepare endpoint options
         const endpointOption = {
-            endpoint: this.endpoint,
+            endpoint: llmEndpointType,
             modelOptions: {
-                model: this.model
+                model: conversation.model || this.model
             }
         };
 
         // Handle agent endpoint
-        if (this.endpoint === 'agents') {
+        if (llmEndpointType === 'agents') {
             logger.info('[ExternalClient] Loading agent for external message');
             const { loadAgent } = require('~/models/Agent');
             const agent = await loadAgent({
                 req: this.req,
                 agent_id: this.options.agent_id,
-                endpoint: this.endpoint,
+                endpoint: llmEndpointType,
                 model_parameters: this.options.model_parameters
             });
 
@@ -231,18 +287,48 @@ class ExternalClient extends BaseClient {
             logger.info('[ExternalClient] Agent loaded successfully');
         }
 
+        logger.info('[ExternalClient] Initializing LLM client with options:', {
+            endpoint: endpointOption.endpoint,
+            model: endpointOption.modelOptions.model,
+            agent_id: endpointOption.agent_id
+        });
+
+        // Ensure user information is available in the request
+        if (!this.req.user) {
+            this.req.user = { id: this.user };
+        }
+
+        // Add API key and conversation details to the request body for the LLM client
+        this.req.body = {
+            ...this.req.body,
+            apiKey: this.apiKey,
+            model: conversation.model || this.model,
+            endpoint: llmEndpointType,
+            conversation: conversation,
+            user: this.user
+        };
+
         const { client } = await initializeLLMClient({
             req: this.req,
             res: this.res,
             endpointOption
         });
 
-        logger.info(`[ExternalClient] Processing with ${this.endpointType} client`);
+        logger.info(`[ExternalClient] Processing with ${llmEndpointType} client`);
+
+        // Format the message with the correct role for the LLM
+        const llmMessage = {
+            text: message.text || message.content[0].text,
+            role: this.mapRoleToOpenAI(message.role),
+            conversationId: message.conversationId,
+            parentMessageId: message.parentMessageId
+        };
 
         // Process the message through the LLM
-        const response = await client.sendMessage(message.text || message.content[0].text, {
-            conversationId: message.conversationId,
-            parentMessageId: message.parentMessageId,
+        const response = await client.sendMessage(llmMessage.text, {
+            conversationId: llmMessage.conversationId,
+            parentMessageId: llmMessage.parentMessageId,
+            role: llmMessage.role,
             onProgress: (token) => {
                 logger.debug(`[ExternalClient] Received token: ${token}`);
             }
@@ -253,9 +339,9 @@ class ExternalClient extends BaseClient {
     }
 
     async buildMessages(messages, parentMessageId) {
-        // Format messages for LLM processing
+        // Format messages for LLM processing with mapped roles
         return messages.map(msg => ({
-            role: msg.role,
+            role: this.mapRoleToOpenAI(msg.role),
             content: msg.text || (msg.content?.[0]?.text || '')
         }));
     }
