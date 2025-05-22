@@ -29,6 +29,7 @@ const validateExternalMessage = async (req, res, next) => {
 
     // Mark as service request for message handling
     req.isServiceRequest = true;
+    req.user = { id: 'external-service' };
     logger.info('[validateExternalMessage] External message request validated successfully');
     next();
 };
