@@ -38,6 +38,9 @@ const initializeClient = async ({ req, res, endpointOption }) => {
     // Create the external client
     const client = new ExternalClient(null, clientOptions);
 
+    // Initialize the client
+    await client.initialize();
+
     logger.info('[ExternalClient] Client initialized successfully', {
         endpoint: conversation.endpoint,
         endpointType: conversation.endpointType,
