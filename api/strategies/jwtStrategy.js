@@ -18,7 +18,7 @@ const customJwtExtractor = (req) => {
   else if (req.cookies && req.cookies.refreshToken) {
     token = req.cookies.refreshToken;
   }
-  console.log('[JWT Extractor] Extracted token:', token ? token.slice(0, 30) + '...' : null);
+  // console.log('[JWT Extractor] Extracted token:', token ? token.slice(0, 30) + '...' : null);
   return token;
 };
 
@@ -31,7 +31,7 @@ const jwtLogin = async () =>
     },
     async (payload, done) => {
       try {
-        console.log('[JWT Strategy] Payload:', payload);
+        // console.log('[JWT Strategy] Payload:', payload);
         const user = await getUserById(payload?.id, '-password -__v -totpSecret');
         if (user) {
           user.id = user._id.toString();
