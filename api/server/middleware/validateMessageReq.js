@@ -12,6 +12,17 @@ const validateMessageReq = async (req, res, next) => {
     conversationId = req.body.message.conversationId;
   }
 
+  // Allow external messages to bypass user validation
+  if (req.body.role === 'external') {
+    const conversation = await getConvo(null, conversationId);
+    if (!conversation) {
+      return res.status(404).json({ error: 'Conversation not found' });
+    }
+    // Store conversation in request for later use
+    req.conversation = conversation;
+    return next();
+  }
+
   const conversation = await getConvo(req.user.id, conversationId);
 
   if (!conversation) {
