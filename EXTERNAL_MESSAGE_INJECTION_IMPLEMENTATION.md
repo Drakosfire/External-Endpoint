@@ -168,11 +168,45 @@ const customJwtExtractor = (req) => {
 
 ---
 
-## 5. End-to-End Flow
+## 5. Current Progress & Challenges
 
-1. **External system** (e.g., Twilio) sends a message to `/api/messages/:conversationId/external` with the API key.
-2. **Backend** saves the message, sets threading, and broadcasts a `newMessage` event to the conversation owner.
-3. **Frontend** receives the event via SSE and refreshes the UI to show the new message in real time.
+### Completed
+1. ✅ External API endpoint setup with proper authentication
+2. ✅ Message storage in database with correct user association
+3. ✅ OpenAI API integration with proper role mapping
+4. ✅ Basic SSE client management implementation
+
+### Current Challenges
+1. **Streaming Response Handling**
+   - Issue: The streaming response from OpenAI is causing client crashes
+   - Symptoms: 
+     - "No clients found for user" error
+     - Headers already sent error
+     - Client disconnection during streaming
+   - Root cause investigation in progress
+
+2. **SSE Client Management**
+   - Issue: SSE clients not persisting or connecting properly
+   - Symptoms:
+     - Messages stored in DB but not reaching UI
+     - Client disconnection during streaming
+   - Current fix: Added header management and connection state checks
+
+### Next Steps
+1. **Streaming Implementation**
+   - Implement proper streaming response handling
+   - Add error recovery for stream interruptions
+   - Consider implementing a message queue for failed deliveries
+
+2. **SSE Client Improvements**
+   - Add reconnection logic for SSE clients
+   - Implement heartbeat mechanism
+   - Add proper error handling for client disconnections
+
+3. **Testing & Monitoring**
+   - Add comprehensive logging for streaming events
+   - Implement monitoring for SSE client connections
+   - Add metrics for message delivery success/failure
 
 ---
 
@@ -193,8 +227,25 @@ curl -v http://localhost:3080/api/messages/stream?token=<ACCESS_TOKEN>
 
 ---
 
-## 7. Next Steps
+## 7. Implementation Notes
 
-- Set up a Twilio webhook to forward SMS to your `/external` endpoint.
-- Use Tailscale or similar to securely expose your webhook if needed.
-- Enjoy end-to-end SMS-to-UI integration! 
+### Current Architecture
+```mermaid
+graph LR
+    A[External API] --> B[Message Handler]
+    B --> C[OpenAI API]
+    C --> D[Stream Handler]
+    D --> E[SSE Broadcast]
+    E --> F[UI Update]
+```
+
+### Known Issues
+1. Streaming response handling needs improvement
+2. SSE client connection management needs enhancement
+3. Error recovery for failed message deliveries
+
+### Planned Improvements
+1. Implement message queue for failed deliveries
+2. Add reconnection logic for SSE clients
+3. Enhance error handling and logging
+4. Add monitoring and metrics 
