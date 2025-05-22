@@ -205,7 +205,7 @@ router.get('/:conversationId', validateMessageReq, async (req, res) => {
 router.post('/:conversationId', validateMessageReq, async (req, res) => {
   try {
     const conversation = req.conversation;
-    logger.debug(`[External Message] Attempting endpoint discovery - conversationId: ${req.params.conversationId}, endpoint: ${conversation?.endpoint}, model: ${conversation?.model}, endpointType: ${conversation?.endpointType}`);
+    // logger.debug(`[External Message] Attempting endpoint discovery - conversationId: ${req.params.conversationId}, endpoint: ${conversation?.endpoint}, model: ${conversation?.model}, endpointType: ${conversation?.endpointType}`);
 
     if (!conversation) {
       logger.error(`[External Message] Conversation not found - conversationId: ${req.params.conversationId}`);
@@ -213,15 +213,15 @@ router.post('/:conversationId', validateMessageReq, async (req, res) => {
     }
 
     // Log successful discovery
-    logger.info(`[External Message] Endpoint discovered - conversationId: ${conversation.conversationId}, endpoint: ${conversation.endpoint}, model: ${conversation.model}`);
+    // logger.info(`[External Message] Endpoint discovered - conversationId: ${conversation.conversationId}, endpoint: ${conversation.endpoint}, model: ${conversation.model}`);
 
     const message = req.body;
 
     // Handle external messages
     if (message.role === 'external') {
       logger.info('[Message] Processing external message');
-      logger.info(`[Message] Request body: ${JSON.stringify(message, null, 2)}`);
-      logger.info(`[Message] Conversation ID: ${req.params.conversationId}`);
+      // logger.info(`[Message] Request body: ${JSON.stringify(message, null, 2)}`);
+      // logger.info(`[Message] Conversation ID: ${req.params.conversationId}`);
 
       const { role, content } = message;
       if (role !== 'external') {
@@ -271,7 +271,7 @@ router.post('/:conversationId', validateMessageReq, async (req, res) => {
         // Process the message through the external client
         const result = await client.sendMessage(message, {
           conversationId: req.params.conversationId,
-          parentMessageId: lastMessage ? lastMessage.messageId : null
+          parentMessageId: lastMessage ? lastMessage.messageId : null,
         });
 
         return res.status(201).json(result);
