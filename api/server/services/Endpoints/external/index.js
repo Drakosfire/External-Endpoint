@@ -37,35 +37,65 @@ class ExternalClient extends BaseClient {
             agent_id: options.agent_id,
             model_parameters: options.model_parameters
         };
+        this.user = null;
+    }
+
+    async initialize() {
+        logger.info('[ExternalClient] Initializing client');
+        logger.info('[ExternalClient] Client options:', this.options);
 
         if (!this.req || !this.res) {
             throw new Error('Request and response objects are required for ExternalClient initialization');
         }
 
-        // Try to recover user from JWT token
-        const token = extractJwtToken(this.req);
-        if (token) {
-            try {
-                const jwt = require('jsonwebtoken');
-                const payload = jwt.verify(token, process.env.JWT_SECRET);
-                this.user = payload?.id;
-                if (this.user) {
-                    logger.info('[ExternalClient] Recovered user from JWT token');
+        // First try to get user from options
+        if (this.options.user) {
+            this.user = this.options.user;
+            logger.info('[ExternalClient] Using user from options:', this.user);
+        }
+
+        // If no user in options, try to recover from JWT token
+        if (!this.user) {
+            const token = extractJwtToken(this.req);
+            if (token) {
+                try {
+                    const jwt = require('jsonwebtoken');
+                    const payload = jwt.verify(token, process.env.JWT_SECRET);
+                    this.user = payload?.id;
+                    if (this.user) {
+                        logger.info('[ExternalClient] Recovered user from JWT token:', this.user);
+                    }
+                } catch (err) {
+                    logger.warn('[ExternalClient] Failed to recover JWT token:', err);
                 }
-            } catch (err) {
-                logger.warn('[ExternalClient] Failed to recover JWT token:', err);
             }
         }
 
-        // If no user recovered from JWT, use the provided user
-        if (!this.user) {
-            this.user = options.user;
+        // If still no user, try to get from request
+        if (!this.user && this.req.user) {
+            this.user = this.req.user.id;
+            logger.info('[ExternalClient] Using user from request:', this.user);
+        }
+
+        // If still no user, try to get from API key
+        if (!this.user && this.apiKey) {
+            try {
+                const user = await getUserById(this.apiKey);
+                if (user) {
+                    this.user = user.id;
+                    logger.info('[ExternalClient] Using user from API key:', this.user);
+                }
+            } catch (err) {
+                logger.warn('[ExternalClient] Failed to get user from API key:', err);
+            }
         }
 
         if (!this.user) {
-            throw new Error('User ID is required for ExternalClient initialization');
+            logger.error('[ExternalClient] No user found in any source');
+            throw new Error('User not authenticated');
         }
 
+        logger.info('[ExternalClient] Client initialized successfully');
         logger.info('[ExternalClient] Initialized with options:', {
             endpoint: this.endpoint,
             endpointType: this.endpointType,
@@ -82,6 +112,11 @@ class ExternalClient extends BaseClient {
             endpoint: this.endpoint,
             model: this.model
         });
+
+        if (!this.user) {
+            logger.error('[ExternalClient] User not authenticated');
+            throw new Error('User not authenticated');
+        }
 
         const { conversationId, parentMessageId } = opts;
         if (!conversationId) {
