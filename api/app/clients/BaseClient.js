@@ -237,11 +237,11 @@ class BaseClient {
     const userMessage = opts.isEdited
       ? this.currentMessages[this.currentMessages.length - 2]
       : this.createUserMessage({
-          messageId: userMessageId,
-          parentMessageId,
-          conversationId,
-          text: message,
-        });
+        messageId: userMessageId,
+        parentMessageId,
+        conversationId,
+        text: message,
+      });
 
     if (typeof opts?.getReqData === 'function') {
       opts.getReqData({
@@ -966,6 +966,20 @@ class BaseClient {
     let currentMessageId = parentMessageId;
     const visitedMessageIds = new Set();
 
+    // Map roles to valid OpenAI roles
+    const mapRole = (role) => {
+      const roleMap = {
+        'external': 'user',
+        'assistant': 'assistant',
+        'system': 'system',
+        'user': 'user',
+        'function': 'function',
+        'tool': 'tool',
+        'developer': 'developer'
+      };
+      return roleMap[role] || 'user';
+    };
+
     while (currentMessageId) {
       if (visitedMessageIds.has(currentMessageId)) {
         break;
@@ -984,6 +998,9 @@ class BaseClient {
       if (summary && message.summary) {
         message.role = 'system';
         message.text = message.summary;
+      } else {
+        // Map the role to a valid OpenAI role
+        message.role = mapRole(message.role);
       }
 
       if (summary && message.summaryTokenCount) {
