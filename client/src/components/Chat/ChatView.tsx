@@ -21,6 +21,7 @@ import store from '~/store';
 import { useQueryClient } from '@tanstack/react-query';
 import React from 'react';
 import { useAuthContext } from '~/hooks/AuthContext';
+import logger from '~/utils/logger';
 
 function LoadingSpinner() {
   return (
@@ -75,23 +76,24 @@ function ChatView({ index = 0 }: { index?: number }) {
     if (!conversationId || !token) return;
 
     const sse = new EventSource(`/api/messages/stream?token=${token}`);
-    console.log('SSE URL:', `/api/messages/stream?token=${token}`);
+    logger.debug('[ChatView] SSE URL:', `/api/messages/stream?token=${token}`);
 
     sse.addEventListener('newMessage', (event) => {
-      console.log('SSE newMessage event:', event.data);
+      logger.debug('[ChatView] SSE newMessage event:', event.data);
       const data = JSON.parse(event.data);
       if (data.conversationId === conversationId) {
-        console.log('Invalidating query for conversation:', conversationId);
+        logger.debug('[ChatView] Invalidating query for conversation:', conversationId);
         queryClient.invalidateQueries(['messages', conversationId]);
       }
     });
 
     sse.addEventListener('error', (error) => {
-      console.error('SSE Error:', error);
+      logger.error('[ChatView] SSE Error:', error);
       sse.close();
     });
 
     return () => {
+      logger.debug('[ChatView] Closing SSE connection');
       sse.close();
     };
   }, [conversationId, queryClient, token]);
