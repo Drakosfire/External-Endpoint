@@ -24,7 +24,9 @@ const searchConversation = async (conversationId) => {
  */
 const getConvo = async (user, conversationId) => {
   try {
-    return await Conversation.findOne({ user, conversationId }).lean();
+    // For external messages (user is null), only search by conversationId
+    const query = user ? { user, conversationId } : { conversationId };
+    return await Conversation.findOne(query).lean();
   } catch (error) {
     logger.error('[getConvo] Error getting single conversation', error);
     return { message: 'Error getting single conversation' };
