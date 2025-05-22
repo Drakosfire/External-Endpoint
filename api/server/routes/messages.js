@@ -23,13 +23,13 @@ const { addClient, removeClient, broadcastToUsers } = require('~/server/sseClien
 
 const router = express.Router();
 
-// Apply JWT auth to all routes except external
+// Apply JWT auth to all routes except external messages
 router.use((req, res, next) => {
-  if (req.path.endsWith('/external')) {
-    next();
-  } else {
-    requireJwtAuth(req, res, next);
+  // For external messages, use API key validation instead of JWT
+  if (req.body.role === 'external') {
+    return validateExternalMessage(req, res, next);
   }
+  requireJwtAuth(req, res, next);
 });
 
 router.get('/', async (req, res) => {
@@ -173,8 +173,8 @@ router.get('/stream', requireJwtAuth, (req, res) => {
   // Log the user object attached by Passport
   console.log('[SSE /stream] req.user:', req.user);
   // Optionally, log the cookies and headers
-  console.log('[SSE /stream] req.cookies:', req.cookies);
-  console.log('[SSE /stream] req.headers:', req.headers);
+  console.log('[SSE /stream] req.cookies:');
+  console.log('[SSE /stream] req.headers:');
 
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
@@ -204,7 +204,84 @@ router.get('/:conversationId', validateMessageReq, async (req, res) => {
 
 router.post('/:conversationId', validateMessageReq, async (req, res) => {
   try {
+    const conversation = req.conversation;
+    logger.debug(`[External Message] Attempting endpoint discovery - conversationId: ${req.params.conversationId}, endpoint: ${conversation?.endpoint}, model: ${conversation?.model}, endpointType: ${conversation?.endpointType}`);
+
+    if (!conversation) {
+      logger.error(`[External Message] Conversation not found - conversationId: ${req.params.conversationId}`);
+      return res.status(404).json({ error: 'Conversation not found' });
+    }
+
+    // Log successful discovery
+    logger.info(`[External Message] Endpoint discovered - conversationId: ${conversation.conversationId}, endpoint: ${conversation.endpoint}, model: ${conversation.model}`);
+
     const message = req.body;
+
+    // Handle external messages
+    if (message.role === 'external') {
+      logger.info('[Message] Processing external message');
+      logger.info(`[Message] Request body: ${JSON.stringify(message, null, 2)}`);
+      logger.info(`[Message] Conversation ID: ${req.params.conversationId}`);
+
+      const { role, content } = message;
+      if (role !== 'external') {
+        logger.warn(`[Message] Invalid role: ${role}`);
+        return res.status(400).json({ error: 'Role must be external' });
+      }
+
+      const conversation = req.conversation;
+      if (!conversation) {
+        logger.error('[Message] No conversation found');
+        return res.status(404).json({ error: 'Conversation not found' });
+      }
+
+      try {
+        // Fetch the last message in the conversation
+        logger.info('[Message] Fetching last message in conversation');
+        const lastMessage = await Message.findOne(
+          { conversationId: req.params.conversationId },
+          {},
+          { sort: { createdAt: -1 } }
+        );
+        logger.info(`[Message] Last message found: ${lastMessage ? 'yes' : 'no'}`);
+
+        // Initialize the external client
+        const { initializeClient } = require('~/server/services/Endpoints/external/initialize');
+
+        // Prepare endpoint options
+        const endpointOption = {
+          endpoint: conversation.endpoint,
+          modelOptions: {
+            model: conversation.model
+          }
+        };
+
+        // Add agent information if needed
+        if (conversation.endpoint === 'agents') {
+          endpointOption.agent_id = conversation.agent_id;
+          endpointOption.model_parameters = conversation.model_parameters;
+        }
+
+        const { client } = await initializeClient({
+          req,
+          res,
+          endpointOption
+        });
+
+        // Process the message through the external client
+        const result = await client.sendMessage(message, {
+          conversationId: req.params.conversationId,
+          parentMessageId: lastMessage ? lastMessage.messageId : null
+        });
+
+        return res.status(201).json(result);
+      } catch (error) {
+        logger.error('[Message] Error processing external message:', error);
+        return res.status(500).json({ error: 'Internal server error' });
+      }
+    }
+
+    // Handle regular messages
     const savedMessage = await saveMessage(
       req,
       { ...message, user: req.user.id },
@@ -218,91 +295,6 @@ router.post('/:conversationId', validateMessageReq, async (req, res) => {
   } catch (error) {
     logger.error('Error saving message:', error);
     res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-router.post('/:conversationId/external', validateExternalMessage, async (req, res) => {
-  try {
-    logger.info('[External Message] Starting external message injection');
-    logger.info('[External Message] Request body:', req.body);
-    logger.info('[External Message] Conversation ID:', req.params.conversationId);
-    logger.info('[External Message] Is service request:', req.isServiceRequest);
-
-    const { role, content } = req.body;
-    if (role !== 'external') {
-      logger.warn('[External Message] Invalid role:', role);
-      return res.status(400).json({ error: 'Role must be external' });
-    }
-
-    // Fetch the last message in the conversation
-    logger.info('[External Message] Fetching last message in conversation');
-    const lastMessage = await Message.findOne(
-      { conversationId: req.params.conversationId },
-      {},
-      { sort: { createdAt: -1 } }
-    );
-    logger.info('[External Message] Last message found:', lastMessage ? 'yes' : 'no');
-
-    const messageId = uuidv4();
-    // Ensure content is always an array of objects
-    const formattedContent = Array.isArray(content) && content[0]?.type && content[0]?.text
-      ? content
-      : [{ type: 'text', text: content }];
-
-    const message = {
-      ...req.body,
-      conversationId: req.params.conversationId,
-      role: 'external',
-      isCreatedByUser: false,
-      text: typeof content === 'string' ? content : (content?.text || ''),
-      messageId,
-      parentMessageId: lastMessage ? lastMessage.messageId : null,
-      content: formattedContent,
-      user: 'system' // Set a system user for service requests
-    };
-
-    // Debug log
-    logger.info('[External Message] Message to be saved:', JSON.stringify(message, null, 2));
-
-    logger.info('[External Message] Attempting to save message');
-    req.user = { id: 'system' };
-    const savedMessage = await saveMessage(
-      req,
-      message,
-      { context: 'POST /api/messages/:conversationId/external' }
-    );
-
-    if (!savedMessage) {
-      logger.error('[External Message] Message save failed - no saved message returned');
-      return res.status(400).json({ error: 'Message not saved' });
-    }
-
-    logger.info('[External Message] Message saved successfully:', JSON.stringify(savedMessage, null, 2));
-
-    // Only update the conversation's timestamp
-    logger.info('[External Message] Updating conversation timestamp');
-    await Conversation.findOneAndUpdate(
-      { conversationId: req.params.conversationId },
-      { $set: { updatedAt: new Date() } },
-      { new: true }
-    );
-
-    // Broadcast to allowed users (single-user: conversation owner)
-    const conversation = await Conversation.findOne({ conversationId: req.params.conversationId });
-    let allowedUserIds = [];
-    if (conversation && conversation.user) {
-      allowedUserIds = [conversation.user.toString()];
-    }
-    broadcastToUsers(allowedUserIds, 'newMessage', {
-      conversationId: savedMessage.conversationId,
-      message: savedMessage,
-    });
-
-    res.status(201).json(savedMessage);
-  } catch (error) {
-    logger.error('[External Message] Error saving external message:', error);
-    logger.error('[External Message] Error stack:', error.stack);
-    return res.status(500).json({ error: 'Internal server error' });
   }
 });
 
