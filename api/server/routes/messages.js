@@ -19,7 +19,7 @@ const { logger } = require('~/config');
 const { Conversation } = require('~/models/Conversation');
 const { v4: uuidv4 } = require('uuid');
 const { sendEvent } = require('~/config');
-const { addClient, removeClient, broadcastToUsers } = require('~/server/sseClients');
+const { addClient, removeClient } = require('~/server/sseClients');
 
 const router = express.Router();
 
@@ -220,8 +220,6 @@ router.post('/:conversationId', validateMessageReq, async (req, res) => {
     // Handle external messages
     if (message.role === 'external') {
       logger.info('[Message] Processing external message');
-      // logger.info(`[Message] Request body: ${JSON.stringify(message, null, 2)}`);
-      // logger.info(`[Message] Conversation ID: ${req.params.conversationId}`);
 
       const { role, content } = message;
       if (role !== 'external') {
@@ -236,6 +234,12 @@ router.post('/:conversationId', validateMessageReq, async (req, res) => {
       }
 
       try {
+        // Set up SSE headers
+        res.setHeader('Content-Type', 'text/event-stream');
+        res.setHeader('Cache-Control', 'no-cache');
+        res.setHeader('Connection', 'keep-alive');
+        res.flushHeaders();
+
         // Fetch the last message in the conversation
         logger.info('[Message] Fetching last message in conversation');
         const lastMessage = await Message.findOne(
@@ -269,12 +273,21 @@ router.post('/:conversationId', validateMessageReq, async (req, res) => {
         });
 
         // Process the message through the external client
-        const result = await client.sendMessage(message, {
+        await client.sendMessage(message, {
           conversationId: req.params.conversationId,
           parentMessageId: lastMessage ? lastMessage.messageId : null,
         });
 
-        return res.status(201).json(result);
+        // Send final message and end the response
+        const { sendMessage } = require('~/server/utils/streamResponse');
+        sendMessage(res, {
+          final: true,
+          conversation,
+          requestMessage: {
+            parentMessageId: lastMessage ? lastMessage.messageId : null,
+          },
+        });
+        return res.end();
       } catch (error) {
         logger.error('[Message] Error processing external message:', error);
         return res.status(500).json({ error: 'Internal server error' });
@@ -282,16 +295,31 @@ router.post('/:conversationId', validateMessageReq, async (req, res) => {
     }
 
     // Handle regular messages
-    const savedMessage = await saveMessage(
-      req,
-      { ...message, user: req.user.id },
-      { context: 'POST /api/messages/:conversationId' },
-    );
-    if (!savedMessage) {
-      return res.status(400).json({ error: 'Message not saved' });
+    try {
+      const savedMessage = await saveMessage(
+        {
+          ...req,
+          conversation: { conversationId: req.params.conversationId }
+        },
+        { ...message, user: req.user.id, conversationId: req.params.conversationId },
+        { context: 'POST /api/messages/:conversationId' },
+      );
+      if (!savedMessage) {
+        return res.status(400).json({ error: 'Message not saved' });
+      }
+      await saveConvo(
+        {
+          ...req,
+          conversation: { conversationId: req.params.conversationId }
+        },
+        savedMessage,
+        { context: 'POST /api/messages/:conversationId' }
+      );
+      return res.status(201).json(savedMessage);
+    } catch (error) {
+      logger.error('Error saving message:', error);
+      return res.status(500).json({ error: 'Internal server error' });
     }
-    await saveConvo(req, savedMessage, { context: 'POST /api/messages/:conversationId' });
-    res.status(201).json(savedMessage);
   } catch (error) {
     logger.error('Error saving message:', error);
     res.status(500).json({ error: 'Internal server error' });
