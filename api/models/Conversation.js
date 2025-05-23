@@ -88,7 +88,7 @@ module.exports = {
    * @param {Object} metadata - Additional metadata to log for operation.
    * @returns {Promise<TConversation>} The conversation object.
    */
-  saveConvo: async (req, { conversationId, newConversationId, ...convo }, metadata) => {
+  saveConvo: async (req, { conversationId, newConversationId, _id, ...convo }, metadata) => {
     try {
       if (metadata?.context) {
         logger.debug(`[saveConvo] ${metadata.context}`);
