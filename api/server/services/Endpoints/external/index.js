@@ -45,9 +45,9 @@ class ExternalClient extends BaseClient {
         logger.info('[ExternalClient] Initializing client');
         // Log only the relevant options without the request/response objects
         const { req, res, ...loggableOptions } = this.options;
-        logger.info('[ExternalClient] Client options:', JSON.stringify(loggableOptions, null, 2));
-        logger.info('[ExternalClient] Request object:', this.req ? 'Present' : 'Missing');
-        logger.info('[ExternalClient] Response object:', this.res ? 'Present' : 'Missing');
+        // logger.info('[ExternalClient] Client options:', JSON.stringify(loggableOptions, null, 2));
+        // logger.info('[ExternalClient] Request object:', this.req ? 'Present' : 'Missing');
+        // logger.info('[ExternalClient] Response object:', this.res ? 'Present' : 'Missing');
 
         if (!this.req || !this.res) {
             throw new Error('Request and response objects are required for ExternalClient initialization');
@@ -180,7 +180,10 @@ class ExternalClient extends BaseClient {
         // Save the external message
         logger.info('[ExternalClient] Saving external message');
         const savedMessage = await saveMessage(
-            { user: { id: this.user } },
+            {
+                user: { id: this.user },
+                conversation: { conversationId }
+            },
             formattedMessage,
             { context: 'ExternalClient.sendMessage' }
         );
@@ -210,7 +213,10 @@ class ExternalClient extends BaseClient {
         };
 
         const savedResponse = await saveMessage(
-            { user: { id: this.user } },
+            {
+                user: { id: this.user },
+                conversation: { conversationId }
+            },
             llmResponse,
             { context: 'ExternalClient.sendMessage - LLM Response' }
         );
@@ -222,21 +228,11 @@ class ExternalClient extends BaseClient {
 
         logger.info('[ExternalClient] LLM response saved successfully');
 
-        // Broadcast both messages
+        // Broadcast both messages in a single event
         broadcastToUsers([this.user], 'newMessage', {
             conversationId: savedMessage.conversationId,
-            message: savedMessage,
+            messages: [savedMessage, savedResponse]
         });
-
-        broadcastToUsers([this.user], 'newMessage', {
-            conversationId: savedResponse.conversationId,
-            message: savedResponse,
-        });
-
-        return {
-            message: savedMessage,
-            response: savedResponse
-        };
     }
 
     async processWithLLM(message, opts = {}) {
