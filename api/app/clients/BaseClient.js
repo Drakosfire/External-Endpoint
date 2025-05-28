@@ -967,7 +967,12 @@ class BaseClient {
     const visitedMessageIds = new Set();
 
     // Map roles to valid OpenAI roles
-    const mapRole = (role) => {
+    const mapRole = (role, message) => {
+      // If the message has tool calls, it should be an assistant message
+      if (message?.content?.some(part => part.type === ContentTypes.TOOL_CALL)) {
+        return 'assistant';
+      }
+
       const roleMap = {
         'external': 'user',
         'assistant': 'assistant',
@@ -984,12 +989,12 @@ class BaseClient {
       if (visitedMessageIds.has(currentMessageId)) {
         break;
       }
+
+      visitedMessageIds.add(currentMessageId);
       const message = messages.find((msg) => {
         const messageId = msg.messageId ?? msg.id;
         return messageId === currentMessageId;
       });
-
-      visitedMessageIds.add(currentMessageId);
 
       if (!message) {
         break;
@@ -999,8 +1004,8 @@ class BaseClient {
         message.role = 'system';
         message.text = message.summary;
       } else {
-        // Map the role to a valid OpenAI role
-        message.role = mapRole(message.role);
+        // Map the role to a valid OpenAI role, passing the message for tool call detection
+        message.role = mapRole(message.role, message);
       }
 
       if (summary && message.summaryTokenCount) {
@@ -1008,13 +1013,7 @@ class BaseClient {
       }
 
       orderedMessages.push(message);
-
-      if (summary && message.summary) {
-        break;
-      }
-
-      currentMessageId =
-        message.parentMessageId === Constants.NO_PARENT ? null : message.parentMessageId;
+      currentMessageId = message.parentMessageId;
     }
 
     orderedMessages.reverse();
