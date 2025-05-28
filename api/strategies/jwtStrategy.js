@@ -23,7 +23,7 @@ const customJwtExtractor = (req) => {
 };
 
 // JWT strategy
-const jwtLogin = async () =>
+const jwtLogin = () =>
   new JwtStrategy(
     {
       jwtFromRequest: customJwtExtractor,
