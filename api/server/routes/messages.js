@@ -207,9 +207,43 @@ router.post('/:conversationId', validateMessageReq, async (req, res) => {
     const conversation = req.conversation;
     // logger.debug(`[External Message] Attempting endpoint discovery - conversationId: ${req.params.conversationId}, endpoint: ${conversation?.endpoint}, model: ${conversation?.model}, endpointType: ${conversation?.endpointType}`);
 
+    // If no conversation exists, create a new one
     if (!conversation) {
-      logger.error(`[External Message] Conversation not found - conversationId: ${req.params.conversationId}`);
-      return res.status(404).json({ error: 'Conversation not found' });
+      logger.info(`[Message] Creating new conversation for conversationId: ${req.params.conversationId}`);
+
+      // Get the most recent active conversation for the user
+      const { Conversation } = require('~/models');
+      const lastConversation = await Conversation.findOne(
+        { user: req.user.id },
+        {},
+        { sort: { updatedAt: -1 } }
+      ).lean();
+
+      // Create new conversation with parameters from last conversation or defaults
+      const newConversation = {
+        conversationId: req.params.conversationId,
+        title: 'New Chat',
+        endpoint: lastConversation?.endpoint || 'openai',
+        model: lastConversation?.model || 'gpt-4o-mini',
+        endpointType: lastConversation?.endpointType,
+        user: req.user.id,
+        createdAt: new Date(),
+        updatedAt: new Date()
+      };
+
+      // Save the new conversation
+      const { saveConvo } = require('~/models');
+      await saveConvo(
+        {
+          ...req,
+          conversation: { conversationId: req.params.conversationId }
+        },
+        newConversation,
+        { context: 'POST /api/messages/:conversationId - Creating new conversation' }
+      );
+
+      // Set the conversation for the request
+      req.conversation = newConversation;
     }
 
     // Log successful discovery
