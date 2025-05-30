@@ -1,4 +1,3 @@
-const { EModelEndpoint } = require('librechat-data-provider');
 const ExternalClient = require('./index');
 const { logger } = require('~/config');
 
@@ -15,17 +14,17 @@ const initializeClient = async ({ req, res, endpointOption }) => {
         res,
         user: conversation.user,
         endpoint: conversation.endpoint,
-        endpointType: conversation.endpointType || conversation.endpoint, // Use endpointType if available, fallback to endpoint
+        endpointType: conversation.endpointType || conversation.endpoint,
         model: conversation.model,
         agent_id: conversation.agent_id,
         ...endpointOption
     };
 
-    // If this is an agents endpoint, we need to pass the agent information
-    if (conversation.endpoint === 'agents') {
-        clientOptions.agent_id = conversation.agent_id;
-        clientOptions.model_parameters = conversation.model_parameters;
-    }
+    // // If this is an agents endpoint, we need to pass the agent information
+    // if (conversation.endpoint === 'agents') {
+    //     clientOptions.agent_id = conversation.agent_id;
+    //     clientOptions.model_parameters = conversation.model_parameters;
+    // }
 
     logger.info('[ExternalClient] Client options:', {
         user: clientOptions.user,

@@ -73,10 +73,13 @@ function ChatView({ index = 0 }: { index?: number }) {
   // Real-time SSE subscription for new messages
   // Invalidate the messages query for the current conversation on newMessage event
   React.useEffect(() => {
-    if (!conversationId || !token) return;
+    if (!conversationId || !token) {
+      logger.debug('[ChatView] Missing conversationId or token, skipping SSE connection');
+      return;
+    }
 
+    logger.debug('[ChatView] Initializing SSE connection with token:', token);
     const sse = new EventSource(`/api/messages/stream?token=${token}`);
-    logger.debug('[ChatView] SSE URL:', `/api/messages/stream?token=${token}`);
 
     sse.addEventListener('newMessage', (event) => {
       logger.debug('[ChatView] SSE newMessage event:', event.data);
@@ -92,11 +95,16 @@ function ChatView({ index = 0 }: { index?: number }) {
       sse.close();
     });
 
+    sse.addEventListener('open', () => {
+      logger.debug('[ChatView] SSE connection opened');
+    });
+
+    // Cleanup function
     return () => {
       logger.debug('[ChatView] Closing SSE connection');
       sse.close();
     };
-  }, [conversationId, queryClient, token]);
+  }, [conversationId, token, queryClient]);
 
   if (isLoading && conversationId !== Constants.NEW_CONVO) {
     content = <LoadingSpinner />;

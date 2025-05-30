@@ -15,6 +15,7 @@ const openAI = require('~/server/services/Endpoints/openAI');
 const agents = require('~/server/services/Endpoints/agents');
 const custom = require('~/server/services/Endpoints/custom');
 const google = require('~/server/services/Endpoints/google');
+const external = require('~/server/services/Endpoints/external');
 const { handleError } = require('~/server/utils');
 
 const buildFunction = {
@@ -28,6 +29,7 @@ const buildFunction = {
   [EModelEndpoint.gptPlugins]: gptPlugins.buildOptions,
   [EModelEndpoint.assistants]: assistants.buildOptions,
   [EModelEndpoint.azureAssistants]: azureAssistants.buildOptions,
+  [EModelEndpoint.external]: external.buildOptions,
 };
 
 async function buildEndpointOption(req, res, next) {

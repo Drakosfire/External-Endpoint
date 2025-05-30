@@ -204,128 +204,28 @@ router.get('/:conversationId', validateMessageReq, async (req, res) => {
 
 router.post('/:conversationId', validateMessageReq, async (req, res) => {
   try {
-    const conversation = req.conversation;
-    // logger.debug(`[External Message] Attempting endpoint discovery - conversationId: ${req.params.conversationId}, endpoint: ${conversation?.endpoint}, model: ${conversation?.model}, endpointType: ${conversation?.endpointType}`);
+    const message = req.body;
+    let conversationId = req.params.conversationId;
 
-    // If no conversation exists, create a new one
-    if (!conversation) {
-      logger.info(`[Message] Creating new conversation for conversationId: ${req.params.conversationId}`);
-
-      // Get the most recent active conversation for the user
-      const { Conversation } = require('~/models');
-      const lastConversation = await Conversation.findOne(
-        { user: req.user.id },
-        {},
-        { sort: { updatedAt: -1 } }
-      ).lean();
-
-      // Create new conversation with parameters from last conversation or defaults
-      const newConversation = {
-        conversationId: req.params.conversationId,
-        title: 'New Chat',
-        endpoint: lastConversation?.endpoint || 'openai',
-        model: lastConversation?.model || 'gpt-4o-mini',
-        endpointType: lastConversation?.endpointType,
-        user: req.user.id,
-        createdAt: new Date(),
-        updatedAt: new Date()
+    if (message.role === 'external') {
+      // Let the external client handle conversation creation
+      const { initializeClient } = require('~/server/services/Endpoints/external/initialize');
+      const endpointOption = {
+        endpoint: 'external',
+        modelOptions: {
+          model: message.metadata?.model || 'gpt-4o'
+        }
       };
 
-      // Save the new conversation
-      const { saveConvo } = require('~/models');
-      await saveConvo(
-        {
-          ...req,
-          conversation: { conversationId: req.params.conversationId }
-        },
-        newConversation,
-        { context: 'POST /api/messages/:conversationId - Creating new conversation' }
-      );
+      const { client } = await initializeClient({
+        req,
+        res,
+        endpointOption
+      });
 
-      // Set the conversation for the request
-      req.conversation = newConversation;
-    }
-
-    // Log successful discovery
-    // logger.info(`[External Message] Endpoint discovered - conversationId: ${conversation.conversationId}, endpoint: ${conversation.endpoint}, model: ${conversation.model}`);
-
-    const message = req.body;
-
-    // Handle external messages
-    if (message.role === 'external') {
-      logger.info('[Message] Processing external message');
-
-      const { role, content } = message;
-      if (role !== 'external') {
-        logger.warn(`[Message] Invalid role: ${role}`);
-        return res.status(400).json({ error: 'Role must be external' });
-      }
-
-      const conversation = req.conversation;
-      if (!conversation) {
-        logger.error('[Message] No conversation found');
-        return res.status(404).json({ error: 'Conversation not found' });
-      }
-
-      try {
-        // Set up SSE headers
-        res.setHeader('Content-Type', 'text/event-stream');
-        res.setHeader('Cache-Control', 'no-cache');
-        res.setHeader('Connection', 'keep-alive');
-        res.flushHeaders();
-
-        // Fetch the last message in the conversation
-        logger.info('[Message] Fetching last message in conversation');
-        const lastMessage = await Message.findOne(
-          { conversationId: req.params.conversationId },
-          {},
-          { sort: { createdAt: -1 } }
-        );
-        logger.info(`[Message] Last message found: ${lastMessage ? 'yes' : 'no'}`);
-
-        // Initialize the external client
-        const { initializeClient } = require('~/server/services/Endpoints/external/initialize');
-
-        // Prepare endpoint options
-        const endpointOption = {
-          endpoint: conversation.endpoint,
-          modelOptions: {
-            model: conversation.model
-          }
-        };
-
-        // Add agent information if needed
-        if (conversation.endpoint === 'agents') {
-          endpointOption.agent_id = conversation.agent_id;
-          endpointOption.model_parameters = conversation.model_parameters;
-        }
-
-        const { client } = await initializeClient({
-          req,
-          res,
-          endpointOption
-        });
-
-        // Process the message through the external client
-        await client.sendMessage(message, {
-          conversationId: req.params.conversationId,
-          parentMessageId: lastMessage ? lastMessage.messageId : null,
-        });
-
-        // Send final message and end the response
-        const { sendMessage } = require('~/server/utils/streamResponse');
-        sendMessage(res, {
-          final: true,
-          conversation,
-          requestMessage: {
-            parentMessageId: lastMessage ? lastMessage.messageId : null,
-          },
-        });
-        return res.end();
-      } catch (error) {
-        logger.error('[Message] Error processing external message:', error);
-        return res.status(500).json({ error: 'Internal server error' });
-      }
+      // Process message (client will handle conversation creation if needed)
+      await client.sendMessage(message);
+      return res.end();
     }
 
     // Handle regular messages
@@ -355,7 +255,7 @@ router.post('/:conversationId', validateMessageReq, async (req, res) => {
       return res.status(500).json({ error: 'Internal server error' });
     }
   } catch (error) {
-    logger.error('Error saving message:', error);
+    logger.error('Error processing message:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

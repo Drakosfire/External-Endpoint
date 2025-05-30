@@ -1,7 +1,7 @@
 const BaseClient = require('~/app/clients/BaseClient');
 const { logger } = require('~/config');
 const { v4: uuidv4 } = require('uuid');
-const { saveMessage, getUserById } = require('~/models');
+const { saveMessage, getUserById, saveConvo } = require('~/models');
 const { getConvo } = require('~/models/Conversation');
 const { broadcastToUsers } = require('~/server/sseClients');
 const { SystemRoles } = require('librechat-data-provider');
@@ -158,32 +158,63 @@ class ExternalClient extends BaseClient {
             throw new Error('User not authenticated');
         }
 
-        const { conversationId, parentMessageId } = opts;
-        if (!conversationId) {
+        // Convert string message to object if needed
+        const messageObj = typeof message === 'string' ? { content: message } : message;
+
+        // First try to create conversation if needed
+        let conversation = null;
+        try {
+            conversation = await this.createConversationIfNeeded(messageObj);
+            if (conversation) {
+                logger.info('[ExternalClient] Created/found conversation:', conversation.conversationId);
+                messageObj.conversationId = conversation.conversationId;
+            }
+        } catch (error) {
+            logger.error('[ExternalClient] Error creating/finding conversation:', error);
+            throw error;
+        }
+
+        // Use the conversationId from either the message or opts
+        const finalConversationId = messageObj.conversationId || opts.conversationId;
+        if (!finalConversationId) {
             throw new Error('Conversation ID is required for external messages');
+        }
+
+        // Extract the message content
+        let messageText;
+        if (messageObj?.content) {
+            messageText = typeof messageObj.content === 'string' ? messageObj.content : messageObj.content[0]?.text || '';
+        } else if (messageObj?.text) {
+            messageText = messageObj.text;
+        } else {
+            messageText = '';
         }
 
         // Format the message for LLM processing
         const formattedMessage = {
             messageId: uuidv4(),
-            conversationId,
-            parentMessageId,
+            conversationId: finalConversationId,
+            parentMessageId: opts.parentMessageId,
             role: 'external',  // Keep original role for our internal use
             openAIRole: this.mapRoleToOpenAI('external'),  // Add mapped role for OpenAI
             isCreatedByUser: false,
-            text: typeof message === 'string' ? message : (message?.text || ''),
-            content: Array.isArray(message?.content) ? message.content : [{ type: 'text', text: message }],
+            text: messageText,  // Use the extracted text
+            content: [{ type: 'text', text: messageText }],  // Format content array
             user: this.user,
-            endpoint: this.endpoint
+            endpoint: this.endpoint,
+            metadata: messageObj?.metadata || {}  // Preserve metadata if present
+        };
+
+        // Create a minimal request object for saveMessage
+        const req = {
+            user: { id: this.user },
+            body: { isTemporary: false }
         };
 
         // Save the external message
         logger.info('[ExternalClient] Saving external message');
         const savedMessage = await saveMessage(
-            {
-                user: { id: this.user },
-                conversation: { conversationId }
-            },
+            req,
             formattedMessage,
             { context: 'ExternalClient.sendMessage' }
         );
@@ -197,13 +228,13 @@ class ExternalClient extends BaseClient {
 
         // Process through LLM
         logger.info('[ExternalClient] Processing through LLM');
-        const response = await this.processWithLLM(formattedMessage, opts);
+        const response = await this.processWithLLM(formattedMessage, { ...opts, conversationId: finalConversationId });
 
         // Save the LLM response
         logger.info('[ExternalClient] Saving LLM response');
         const llmResponse = {
             ...response,
-            conversationId,
+            conversationId: finalConversationId,
             role: 'assistant',
             isCreatedByUser: false,
             messageId: uuidv4(),
@@ -213,10 +244,7 @@ class ExternalClient extends BaseClient {
         };
 
         const savedResponse = await saveMessage(
-            {
-                user: { id: this.user },
-                conversation: { conversationId }
-            },
+            req,
             llmResponse,
             { context: 'ExternalClient.sendMessage - LLM Response' }
         );
@@ -233,6 +261,13 @@ class ExternalClient extends BaseClient {
             conversationId: savedMessage.conversationId,
             messages: [savedMessage, savedResponse]
         });
+
+        // Return the conversation ID for reference
+        return {
+            conversationId: finalConversationId,
+            messageId: savedMessage.messageId,
+            responseId: savedResponse.messageId
+        };
     }
 
     async processWithLLM(message, opts = {}) {
@@ -243,33 +278,57 @@ class ExternalClient extends BaseClient {
         }
 
         // Use the conversation's endpoint type for LLM initialization
-        const llmEndpointType = conversation.endpointType || conversation.endpoint;
+        const llmEndpointType = conversation.endpointType || 'openAI';  // Default to OpenAI if not specified
         logger.info('[ExternalClient] Using LLM endpoint type:', llmEndpointType);
 
+        // Map endpoint type to correct case
+        const endpointMap = {
+            'openai': 'openAI',
+            'azureopenai': 'azureOpenAI',
+            'anthropic': 'anthropic',
+            'google': 'google',
+            'custom': 'custom',
+            'agents': 'agents',
+            'bedrock': 'bedrock',
+            'gptplugins': 'gptPlugins',
+            'assistants': 'assistants',
+            'azureassistants': 'azureAssistants'
+        };
+
+        const correctEndpointType = endpointMap[llmEndpointType.toLowerCase()] || llmEndpointType;
+        logger.info('[ExternalClient] Mapped endpoint type:', correctEndpointType);
+
         // Get the appropriate LLM client based on conversation endpoint
-        const initializeModule = require(`~/server/services/Endpoints/${llmEndpointType}/initialize`);
+        let initializeModule;
+        try {
+            initializeModule = require(`../${correctEndpointType}/initialize`);
+        } catch (error) {
+            logger.error('[ExternalClient] Failed to load initialization module:', error);
+            throw new Error(`Failed to load initialization module for endpoint type: ${correctEndpointType}`);
+        }
+
         const initializeLLMClient = initializeModule.initializeClient || initializeModule;
 
         if (typeof initializeLLMClient !== 'function') {
-            throw new Error(`Failed to load LLM client initializer for endpoint type: ${llmEndpointType}`);
+            throw new Error(`Failed to load LLM client initializer for endpoint type: ${correctEndpointType}`);
         }
 
         // Prepare endpoint options
         const endpointOption = {
-            endpoint: llmEndpointType,
+            endpoint: correctEndpointType,
             modelOptions: {
                 model: conversation.model || this.model
             }
         };
 
         // Handle agent endpoint
-        if (llmEndpointType === 'agents') {
+        if (correctEndpointType === 'agents') {
             logger.info('[ExternalClient] Loading agent for external message');
             const { loadAgent } = require('~/models/Agent');
             const agent = await loadAgent({
                 req: this.req,
                 agent_id: this.options.agent_id,
-                endpoint: llmEndpointType,
+                endpoint: correctEndpointType,
                 model_parameters: this.options.model_parameters
             });
 
@@ -299,7 +358,7 @@ class ExternalClient extends BaseClient {
             ...this.req.body,
             apiKey: this.apiKey,
             model: conversation.model || this.model,
-            endpoint: llmEndpointType,
+            endpoint: correctEndpointType,
             conversation: conversation,
             user: this.user
         };
@@ -310,7 +369,7 @@ class ExternalClient extends BaseClient {
             endpointOption
         });
 
-        logger.info(`[ExternalClient] Processing with ${llmEndpointType} client`);
+        logger.info(`[ExternalClient] Processing with ${correctEndpointType} client`);
 
         // Format the message with the correct role for the LLM
         const llmMessage = {
@@ -341,6 +400,97 @@ class ExternalClient extends BaseClient {
             content: msg.text || (msg.content?.[0]?.text || '')
         }));
     }
+
+    async createConversationIfNeeded(message) {
+        // If we have a conversationId in the message, try to get the conversation
+        if (message.conversationId) {
+            try {
+                const existingConversation = await getConvo(null, message.conversationId);
+                if (existingConversation) {
+                    logger.info('[ExternalClient] Found existing conversation:', message.conversationId);
+                    return existingConversation;
+                }
+            } catch (error) {
+                logger.warn('[ExternalClient] Error getting existing conversation:', error);
+            }
+        }
+
+        // Create new conversation
+        const newConversation = {
+            conversationId: message.conversationId || uuidv4(),
+            title: message.metadata?.title || 'New External Conversation',
+            endpoint: this.endpoint,
+            model: this.model,
+            user: this.user,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+            metadata: {
+                ...message.metadata,
+                source: message.metadata?.source || 'external',
+                createdBy: 'external-service'
+            }
+        };
+
+        logger.info('[ExternalClient] Creating new conversation:', newConversation.conversationId);
+
+        // Create a minimal request object for saveConvo
+        const req = {
+            user: { id: this.user },
+            body: { isTemporary: false }
+        };
+
+        const conversation = await saveConvo(
+            req,
+            newConversation,
+            { context: 'ExternalClient.createConversationIfNeeded' }
+        );
+
+        if (!conversation) {
+            throw new Error('Failed to create conversation');
+        }
+
+        logger.info('[ExternalClient] Successfully created conversation:', conversation.conversationId);
+        return conversation;
+    }
+
+    validateConversation(conversation) {
+        if (!conversation) return false;
+        if (!conversation.conversationId) return false;
+        if (!conversation.user) return false;
+        if (!conversation.endpoint) return false;
+        return true;
+    }
+
+    async handleConversationError(error, message) {
+        logger.error('[ExternalClient] Conversation error:', error);
+        if (error.code === 'CONVERSATION_NOT_FOUND') {
+            // Try to create conversation
+            return await this.createConversationIfNeeded(message);
+        }
+        throw error;
+    }
 }
 
-module.exports = ExternalClient; 
+const buildOptions = async ({ req, res, endpointOption }) => {
+    logger.info('[ExternalClient] Building options');
+    const { conversation } = req;
+    if (!conversation) {
+        throw new Error('Conversation is required for external client initialization');
+    }
+
+    return {
+        req,
+        res,
+        user: conversation.user,
+        endpoint: conversation.endpoint,
+        endpointType: conversation.endpointType || conversation.endpoint,
+        model: conversation.model,
+        agent_id: conversation.agent_id,
+        ...endpointOption
+    };
+};
+
+// Export the class directly
+module.exports = ExternalClient;
+// Also export buildOptions as a property
+module.exports.buildOptions = buildOptions; 

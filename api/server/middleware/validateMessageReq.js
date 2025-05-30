@@ -15,10 +15,7 @@ const validateMessageReq = async (req, res, next) => {
   // Allow external messages to bypass user validation
   if (req.body.role === 'external') {
     const conversation = await getConvo(null, conversationId);
-    if (!conversation) {
-      return res.status(404).json({ error: 'Conversation not found' });
-    }
-    // Store conversation in request for later use
+    // Store conversation in request for later use (even if null)
     req.conversation = conversation;
     return next();
   }
