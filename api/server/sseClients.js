@@ -73,4 +73,23 @@ function broadcastToUsers(userIds, event, data) {
     }
 }
 
-module.exports = { addClient, removeClient, broadcastToUser, broadcastToUsers };
+function broadcastNewConversation(userId, conversation) {
+    if (!conversation || !conversation.conversationId) {
+        logger.error('[SSE] Invalid conversation object for broadcast:', conversation);
+        return;
+    }
+
+    logger.info(`[SSE] Broadcasting new conversation to user: ${userId}, conversationId: ${conversation.conversationId}`);
+    broadcastToUser(userId, 'newConversation', {
+        conversation,
+        timestamp: new Date().toISOString()
+    });
+}
+
+module.exports = {
+    addClient,
+    removeClient,
+    broadcastToUser,
+    broadcastToUsers,
+    broadcastNewConversation
+};
