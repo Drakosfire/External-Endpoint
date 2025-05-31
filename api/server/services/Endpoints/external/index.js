@@ -3,7 +3,7 @@ const { logger } = require('~/config');
 const { v4: uuidv4 } = require('uuid');
 const { saveMessage, getUserById, saveConvo } = require('~/models');
 const { getConvo } = require('~/models/Conversation');
-const { broadcastToUsers } = require('~/server/sseClients');
+const { broadcastToUsers, broadcastNewConversation } = require('~/server/sseClients');
 const { SystemRoles } = require('librechat-data-provider');
 
 // Custom extractor to get JWT from query param or Authorization header
@@ -39,6 +39,21 @@ class ExternalClient extends BaseClient {
             model_parameters: options.model_parameters
         };
         this.user = null;
+    }
+
+    // Override token usage recording to skip token spending for external messages
+    async recordTokenUsage({ promptTokens, completionTokens }) {
+        logger.debug('[ExternalClient] Skipping token usage recording for external message', {
+            promptTokens,
+            completionTokens
+        });
+        return;
+    }
+
+    // Override token count to return 0 for external messages
+    getTokenCountForResponse(responseMessage) {
+        logger.debug('[ExternalClient] Skipping token count for external message', responseMessage);
+        return 0;
     }
 
     async initialize() {
@@ -168,6 +183,9 @@ class ExternalClient extends BaseClient {
             if (conversation) {
                 logger.info('[ExternalClient] Created/found conversation:', conversation.conversationId);
                 messageObj.conversationId = conversation.conversationId;
+                // Update client properties from conversation
+                this.endpoint = conversation.endpoint;
+                this.model = conversation.model;
             }
         } catch (error) {
             logger.error('[ExternalClient] Error creating/finding conversation:', error);
@@ -200,9 +218,13 @@ class ExternalClient extends BaseClient {
             isCreatedByUser: false,
             text: messageText,  // Use the extracted text
             content: [{ type: 'text', text: messageText }],  // Format content array
-            user: this.user,
+            user: this.user,  // This should be a valid MongoDB ObjectId
             endpoint: this.endpoint,
-            metadata: messageObj?.metadata || {}  // Preserve metadata if present
+            metadata: {
+                ...messageObj?.metadata,
+                source: messageObj?.metadata?.source || 'external',
+                createdBy: 'external-service'  // This is just metadata, not a user ID
+            }
         };
 
         // Create a minimal request object for saveMessage
@@ -239,8 +261,12 @@ class ExternalClient extends BaseClient {
             isCreatedByUser: false,
             messageId: uuidv4(),
             parentMessageId: savedMessage.messageId,
-            user: this.user,
-            endpoint: this.endpoint
+            user: this.user,  // This should be a valid MongoDB ObjectId
+            endpoint: this.endpoint,
+            metadata: {
+                source: 'external',
+                createdBy: 'external-service'  // This is just metadata, not a user ID
+            }
         };
 
         const savedResponse = await saveMessage(
@@ -408,26 +434,38 @@ class ExternalClient extends BaseClient {
                 const existingConversation = await getConvo(null, message.conversationId);
                 if (existingConversation) {
                     logger.info('[ExternalClient] Found existing conversation:', message.conversationId);
+                    // Update the user ID to match the existing conversation
+                    this.user = existingConversation.user;
+                    // Update endpoint and model from existing conversation
+                    this.endpoint = existingConversation.endpoint;
+                    this.model = existingConversation.model;
                     return existingConversation;
                 }
             } catch (error) {
                 logger.warn('[ExternalClient] Error getting existing conversation:', error);
+                throw error; // Re-throw to handle at higher level
             }
         }
 
-        // Create new conversation
+        // Ensure we have a valid user ID
+        if (!this.user) {
+            logger.error('[ExternalClient] No valid user ID available for conversation creation');
+            throw new Error('User ID is required for conversation creation');
+        }
+
+        // Create new conversation only if we don't have a conversationId or couldn't find existing one
         const newConversation = {
             conversationId: message.conversationId || uuidv4(),
             title: message.metadata?.title || 'New External Conversation',
             endpoint: this.endpoint,
             model: this.model,
-            user: this.user,
+            user: this.user, // This should be a valid MongoDB ObjectId
             createdAt: new Date(),
             updatedAt: new Date(),
             metadata: {
                 ...message.metadata,
                 source: message.metadata?.source || 'external',
-                createdBy: 'external-service'
+                createdBy: 'external-service' // This is just metadata, not a user ID
             }
         };
 
@@ -439,18 +477,39 @@ class ExternalClient extends BaseClient {
             body: { isTemporary: false }
         };
 
-        const conversation = await saveConvo(
-            req,
-            newConversation,
-            { context: 'ExternalClient.createConversationIfNeeded' }
-        );
+        try {
+            const conversation = await saveConvo(
+                req,
+                newConversation,
+                { context: 'ExternalClient.createConversationIfNeeded' }
+            );
 
-        if (!conversation) {
-            throw new Error('Failed to create conversation');
+            if (!conversation) {
+                throw new Error('Failed to create conversation');
+            }
+
+            logger.info('[ExternalClient] Successfully created conversation:', conversation.conversationId);
+
+            // Broadcast the new conversation event
+            broadcastNewConversation(conversation.user, conversation);
+
+            return conversation;
+        } catch (error) {
+            if (error.code === 11000 && error.codeName === 'DuplicateKey') {
+                // If we get a duplicate key error, it means the conversation was created in parallel
+                // Just fetch and return the existing conversation
+                const existingConversation = await getConvo(null, newConversation.conversationId);
+                if (existingConversation) {
+                    logger.info('[ExternalClient] Retrieved existing conversation after duplicate key error:', existingConversation.conversationId);
+                    // Update the user ID and other properties to match the existing conversation
+                    this.user = existingConversation.user;
+                    this.endpoint = existingConversation.endpoint;
+                    this.model = existingConversation.model;
+                    return existingConversation;
+                }
+            }
+            throw error;
         }
-
-        logger.info('[ExternalClient] Successfully created conversation:', conversation.conversationId);
-        return conversation;
     }
 
     validateConversation(conversation) {
