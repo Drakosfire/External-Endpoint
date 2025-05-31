@@ -90,6 +90,19 @@ function ChatView({ index = 0 }: { index?: number }) {
       }
     });
 
+    sse.addEventListener('newConversation', (event) => {
+      logger.debug('[ChatView] SSE newConversation event:', event.data);
+      const data = JSON.parse(event.data);
+      // Invalidate conversations query to refresh the conversation list
+      queryClient.invalidateQueries(['conversations']);
+
+      // If this is the current conversation, also invalidate messages
+      if (data.conversation?.conversationId === conversationId) {
+        logger.debug('[ChatView] Invalidating messages for new conversation:', conversationId);
+        queryClient.invalidateQueries(['messages', conversationId]);
+      }
+    });
+
     sse.addEventListener('error', (error) => {
       logger.error('[ChatView] SSE Error:', error);
       sse.close();
