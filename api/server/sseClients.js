@@ -16,6 +16,17 @@ function removeClient(userId, res) {
     }
 }
 
+function getActiveUsers() {
+    return Array.from(clients.keys()).filter(userId => {
+        const userClients = clients.get(userId);
+        return userClients && userClients.size > 0;
+    });
+}
+
+function hasActiveUser(userId) {
+    return clients.has(userId) && clients.get(userId).size > 0;
+}
+
 function broadcastToUser(userId, event, data) {
     if (!clients.has(userId)) {
         logger.info(`[SSE] No clients found for user: ${userId}`);
@@ -89,6 +100,8 @@ function broadcastNewConversation(userId, conversation) {
 module.exports = {
     addClient,
     removeClient,
+    getActiveUsers,
+    hasActiveUser,
     broadcastToUser,
     broadcastToUsers,
     broadcastNewConversation

@@ -34,7 +34,14 @@ const idSchema = z.string().uuid();
  * @throws {Error} If there is an error in saving the message.
  */
 async function saveMessage(req, params, metadata) {
-  if (!req?.user?.id && !(req.body && req.body.role === 'external' && req.body.user === 'system')) {
+  // Convert Buffer to string if needed and store the original type
+  const isBuffer = req?.body?.user instanceof Buffer;
+  const bodyUser = isBuffer ? req.body.user.toString() : req?.body?.user;
+
+  logger.info(`[saveMessage] Authentication check state: hasUser=${!!req?.user}, userId=${req?.user?.id}, bodyRole=${req?.body?.role}, bodyUser=${bodyUser}, bodyUserType=${isBuffer ? 'Buffer' : typeof bodyUser}, bodyUserIsBuffer=${isBuffer}, context=${metadata?.context}`);
+
+  if (!req?.user?.id && !(req.body && req.body.role === 'external' && bodyUser === 'system')) {
+    logger.error(`[saveMessage] Authentication failed: hasUser=${!!req?.user}, userId=${req?.user?.id}, bodyRole=${req?.body?.role}, bodyUser=${bodyUser}, bodyUserType=${isBuffer ? 'Buffer' : typeof bodyUser}, bodyUserIsBuffer=${isBuffer}, context=${metadata?.context}`);
     throw new Error('User not authenticated');
   }
 

@@ -115,9 +115,27 @@ module.exports = {
         updateOperation.$unset = metadata.unsetFields;
       }
 
+      // For external messages, we need to handle conversation lookup differently
+      let query;
+      if (req.isServiceRequest || metadata?.isExternalMessage) {
+        // For external messages, first check if conversation exists
+        const existingConvo = await Conversation.findOne({ conversationId }).lean();
+        if (existingConvo) {
+          // Use the existing conversation's user ID for the update
+          query = { conversationId, user: existingConvo.user };
+          update.user = existingConvo.user; // Ensure we don't change the owner
+        } else {
+          // New conversation - use the provided user ID
+          query = { conversationId, user: req.user.id };
+        }
+      } else {
+        // Regular user request - use standard query
+        query = { conversationId, user: req.user.id };
+      }
+
       /** Note: the resulting Model object is necessary for Meilisearch operations */
       const conversation = await Conversation.findOneAndUpdate(
-        { conversationId, user: req.user.id },
+        query,
         updateOperation,
         {
           new: true,

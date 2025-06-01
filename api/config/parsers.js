@@ -74,10 +74,12 @@ const redactFormat = winston.format((info) => {
  * @returns {any} - The truncated or original value.
  */
 const truncateLongStrings = (value, length = 100) => {
+  if (Buffer.isBuffer(value)) {
+    return `<Buffer ${value.length} bytes>`;
+  }
   if (typeof value === 'string') {
     return value.length > length ? value.substring(0, length) + '... [truncated]' : value;
   }
-
   return value;
 };
 
@@ -87,6 +89,9 @@ const truncateLongStrings = (value, length = 100) => {
  * @returns {any} - The condensed item.
  */
 const condenseArray = (item) => {
+  if (Buffer.isBuffer(item)) {
+    return `<Buffer ${item.length} bytes>`;
+  }
   if (typeof item === 'string') {
     return truncateLongStrings(JSON.stringify(item));
   } else if (typeof item === 'object') {
@@ -115,6 +120,9 @@ const debugTraverse = winston.format.printf(({ level, message, timestamp, ...met
   }
 
   if (!message?.trim || typeof message !== 'string') {
+    if (Buffer.isBuffer(message)) {
+      return `${timestamp} ${level}: <Buffer ${message.length} bytes>`;
+    }
     return `${timestamp} ${level}: ${JSON.stringify(message)}`;
   }
 
@@ -132,6 +140,10 @@ const debugTraverse = winston.format.printf(({ level, message, timestamp, ...met
 
     if (!debugValue) {
       return msg;
+    }
+
+    if (Buffer.isBuffer(debugValue)) {
+      return `${msg}\n<Buffer ${debugValue.length} bytes>`;
     }
 
     if (debugValue && Array.isArray(debugValue)) {
@@ -159,12 +171,12 @@ const debugTraverse = winston.format.printf(({ level, message, timestamp, ...met
       }
 
       const parentKey = `${parent && parent.notRoot ? _parentKey + '.' : ''}`;
-
       const tabs = `${parent && parent.notRoot ? '    ' : '  '}`;
-
       const currentKey = this?.key ?? 'unknown';
 
-      if (this.isLeaf && typeof value === 'string') {
+      if (Buffer.isBuffer(value)) {
+        msg += `\n${tabs}${parentKey}${currentKey}: <Buffer ${value.length} bytes>,`;
+      } else if (this.isLeaf && typeof value === 'string') {
         const truncatedText = truncateLongStrings(value);
         msg += `\n${tabs}${parentKey}${currentKey}: ${JSON.stringify(truncatedText)},`;
       } else if (this.notLeaf && Array.isArray(value) && value.length > 0) {
