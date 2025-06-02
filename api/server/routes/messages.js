@@ -170,24 +170,91 @@ router.post('/artifact/:messageId', async (req, res) => {
 });
 
 router.get('/stream', requireJwtAuth, (req, res) => {
-  // Log the user object attached by Passport
-  console.log('[SSE /stream] req.user:', req.user);
-  // Optionally, log the cookies and headers
-  console.log('[SSE /stream] req.cookies:');
-  console.log('[SSE /stream] req.headers:');
+  // Enhanced logging for SSE connection setup
+  logger.info('[SSE /stream] New SSE connection request:', {
+    userId: req.user?.id,
+    userType: typeof req.user?.id,
+    userAgent: req.headers['user-agent'],
+    origin: req.headers.origin
+  });
 
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Headers', 'Cache-Control');
+  res.setHeader('X-Accel-Buffering', 'no'); // Disable nginx buffering
   res.flushHeaders();
 
   const userId = req.user.id;
-  addClient(userId, res);
-  logger.info(`[SSE] Added client for user: ${userId}`);
+
+  // Ensure userId is a string for consistency
+  const userIdString = userId.toString();
+  logger.info('[SSE /stream] Adding client:', {
+    originalUserId: userId,
+    userIdString: userIdString,
+    originalType: typeof userId,
+    stringType: typeof userIdString
+  });
+
+  addClient(userIdString, res);
+  logger.info(`[SSE] Added client for user: ${userIdString}`);
+
+  // Send initial connection confirmation
+  try {
+    res.write(`event: connected\ndata: ${JSON.stringify({
+      message: 'SSE connection established',
+      userId: userIdString,
+      timestamp: new Date().toISOString()
+    })}\n\n`);
+    res.flush();
+  } catch (error) {
+    logger.error('[SSE] Error sending initial message:', error);
+  }
+
+  // Set up heartbeat to keep connection alive
+  const heartbeatInterval = setInterval(() => {
+    try {
+      if (!res.writableEnded && !res.destroyed) {
+        res.write(`event: heartbeat\ndata: ${JSON.stringify({
+          timestamp: new Date().toISOString()
+        })}\n\n`);
+        res.flush();
+        logger.debug(`[SSE] Heartbeat sent to user: ${userIdString}`);
+      } else {
+        clearInterval(heartbeatInterval);
+        removeClient(userIdString, res);
+      }
+    } catch (error) {
+      logger.debug(`[SSE] Heartbeat failed for user ${userIdString}, cleaning up:`, error.message);
+      clearInterval(heartbeatInterval);
+      removeClient(userIdString, res);
+    }
+  }, 30000); // Send heartbeat every 30 seconds
 
   req.on('close', () => {
-    removeClient(userId, res);
-    logger.info(`[SSE] Connection closed for user: ${userId}`);
+    clearInterval(heartbeatInterval);
+    removeClient(userIdString, res);
+    logger.info(`[SSE] Connection closed for user: ${userIdString}`);
+  });
+
+  req.on('error', (error) => {
+    logger.error(`[SSE] Connection error for user ${userIdString}:`, error.message);
+    clearInterval(heartbeatInterval);
+    removeClient(userIdString, res);
+  });
+
+  // Handle response errors
+  res.on('error', (error) => {
+    logger.error(`[SSE] Response error for user ${userIdString}:`, error.message);
+    clearInterval(heartbeatInterval);
+    removeClient(userIdString, res);
+  });
+
+  res.on('close', () => {
+    logger.debug(`[SSE] Response closed for user: ${userIdString}`);
+    clearInterval(heartbeatInterval);
+    removeClient(userIdString, res);
   });
 });
 
@@ -207,6 +274,12 @@ router.post('/:conversationId', validateMessageReq, async (req, res) => {
     const message = req.body;
     let conversationId = req.params.conversationId;
 
+    logger.info('[Messages] Processing message request:', {
+      conversationId: conversationId,
+      messageRole: message.role,
+      isExternal: message.role === 'external'
+    });
+
     if (message.role === 'external') {
       // Let the external client handle conversation creation
       const { initializeClient } = require('~/server/services/Endpoints/external/initialize');
@@ -214,8 +287,14 @@ router.post('/:conversationId', validateMessageReq, async (req, res) => {
         endpoint: 'external',
         modelOptions: {
           model: message.metadata?.model || 'gpt-4o'
-        }
+        },
+        conversationId: req.params.conversationId // Pass conversation ID from params
       };
+
+      logger.info('[Messages] Initializing external client with options:', {
+        conversationId: endpointOption.conversationId,
+        model: endpointOption.modelOptions.model
+      });
 
       const { client } = await initializeClient({
         req,
@@ -334,6 +413,122 @@ router.delete('/:conversationId/:messageId', validateMessageReq, async (req, res
   } catch (error) {
     logger.error('Error deleting message:', error);
     res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Add debug endpoint for testing SSE
+router.post('/debug/broadcast', requireJwtAuth, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const userIdString = userId.toString(); // Ensure consistency with SSE client registration
+    const { event = 'testMessage', data = { message: 'Test broadcast', timestamp: new Date().toISOString() } } = req.body;
+
+    logger.info(`[DEBUG] Broadcasting test event to user:`, {
+      originalUserId: userId,
+      userIdString: userIdString,
+      event: event,
+      data: data
+    });
+
+    const { broadcastToUser, hasActiveUser } = require('~/server/sseClients');
+    const hasConnection = hasActiveUser(userIdString);
+
+    logger.info(`[DEBUG] User ${userIdString} has active SSE connection: ${hasConnection}`);
+
+    if (hasConnection) {
+      const success = broadcastToUser(userIdString, event, data);
+      res.json({
+        success: success,
+        message: `Test event '${event}' broadcast to user ${userIdString}`,
+        hasActiveConnection: hasConnection,
+        userIdUsed: userIdString,
+        broadcastSuccess: success
+      });
+    } else {
+      res.json({
+        success: false,
+        message: `No active SSE connection found for user ${userIdString}`,
+        hasActiveConnection: hasConnection,
+        userIdUsed: userIdString,
+        broadcastSuccess: false
+      });
+    }
+  } catch (error) {
+    logger.error('[DEBUG] Error in test broadcast:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Add immediate external message test endpoint
+router.post('/debug/external-message', requireJwtAuth, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const userIdString = userId.toString();
+    const { conversationId, messageText = 'Test external message' } = req.body;
+
+    if (!conversationId) {
+      return res.status(400).json({ error: 'conversationId is required' });
+    }
+
+    logger.info(`[DEBUG] Creating test external message for user ${userIdString}`);
+
+    // Create a test message similar to external messages
+    const testMessage = {
+      messageId: uuidv4(),
+      conversationId: conversationId,
+      parentMessageId: null,
+      role: 'external',
+      isCreatedByUser: false,
+      text: messageText,
+      content: [{ type: 'text', text: messageText }],
+      user: userIdString,
+      endpoint: 'external',
+      metadata: {
+        source: 'test',
+        createdBy: 'debug-endpoint'
+      },
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    // Save the message
+    const savedMessage = await saveMessage(
+      { user: { id: userIdString }, body: { isTemporary: false } },
+      testMessage,
+      { context: 'DEBUG external message test' }
+    );
+
+    if (!savedMessage) {
+      return res.status(500).json({ error: 'Failed to save test message' });
+    }
+
+    // Broadcast immediately
+    const { broadcastToUsers, hasActiveUser } = require('~/server/sseClients');
+    const hasConnection = hasActiveUser(userIdString);
+
+    logger.info(`[DEBUG] Broadcasting test external message to user ${userIdString}, hasConnection: ${hasConnection}`);
+
+    const broadcastSuccess = broadcastToUsers([userIdString], 'newMessage', {
+      conversationId: savedMessage.conversationId,
+      messages: [savedMessage],
+      timestamp: new Date().toISOString()
+    });
+
+    res.json({
+      success: true,
+      message: 'Test external message created and broadcast',
+      savedMessage: {
+        messageId: savedMessage.messageId,
+        conversationId: savedMessage.conversationId,
+        text: savedMessage.text
+      },
+      hasActiveConnection: hasConnection,
+      broadcastSuccess: broadcastSuccess > 0
+    });
+
+  } catch (error) {
+    logger.error('[DEBUG] Error in external message test:', error);
+    res.status(500).json({ error: 'Internal server error', details: error.message });
   }
 });
 

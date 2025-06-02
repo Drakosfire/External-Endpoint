@@ -6,6 +6,9 @@ function addClient(userId, res) {
     if (!clients.has(userId)) clients.set(userId, new Set());
     clients.get(userId).add(res);
     logger.info(`[SSE] Added client for user: ${userId}, total: ${clients.get(userId).size}`);
+
+    // Clean up any existing disconnected clients for this user
+    cleanupDisconnectedClients(userId);
 }
 
 function removeClient(userId, res) {
@@ -16,7 +19,33 @@ function removeClient(userId, res) {
     }
 }
 
+function cleanupDisconnectedClients(userId) {
+    if (!clients.has(userId)) return;
+
+    const userClients = clients.get(userId);
+    const disconnectedClients = new Set();
+
+    for (const res of userClients) {
+        if (res.writableEnded || res.destroyed) {
+            disconnectedClients.add(res);
+        }
+    }
+
+    for (const res of disconnectedClients) {
+        removeClient(userId, res);
+    }
+
+    if (disconnectedClients.size > 0) {
+        logger.debug(`[SSE] Cleaned up ${disconnectedClients.size} disconnected clients for user: ${userId}`);
+    }
+}
+
 function getActiveUsers() {
+    // Clean up disconnected clients before returning active users
+    for (const userId of clients.keys()) {
+        cleanupDisconnectedClients(userId);
+    }
+
     return Array.from(clients.keys()).filter(userId => {
         const userClients = clients.get(userId);
         return userClients && userClients.size > 0;
@@ -24,17 +53,19 @@ function getActiveUsers() {
 }
 
 function hasActiveUser(userId) {
+    cleanupDisconnectedClients(userId);
     return clients.has(userId) && clients.get(userId).size > 0;
 }
 
 function broadcastToUser(userId, event, data) {
     if (!clients.has(userId)) {
-        logger.info(`[SSE] No clients found for user: ${userId}`);
-        return;
+        logger.debug(`[SSE] No clients found for user: ${userId}`);
+        return false;
     }
 
     const userClients = clients.get(userId);
     const disconnectedClients = new Set();
+    let successfulBroadcasts = 0;
 
     for (const res of userClients) {
         try {
@@ -49,19 +80,28 @@ function broadcastToUser(userId, event, data) {
                 res.setHeader('Content-Type', 'text/event-stream');
                 res.setHeader('Cache-Control', 'no-cache');
                 res.setHeader('Connection', 'keep-alive');
-                res.flushHeaders();
+                res.setHeader('Access-Control-Allow-Origin', '*');
+                res.setHeader('Access-Control-Allow-Headers', 'Cache-Control');
+                res.setHeader('X-Accel-Buffering', 'no');
             }
 
             // Only write if the response is still writable
             if (!res.writableEnded) {
-                logger.info(`[SSE] Writing event to user: ${userId}, event: ${event}`);
-                res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
-                res.flush();
+                const eventData = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+                res.write(eventData);
+
+                // Try to flush if available
+                if (typeof res.flush === 'function') {
+                    res.flush();
+                }
+
+                successfulBroadcasts++;
+                logger.debug(`[SSE] Successfully sent event '${event}' to user: ${userId}`);
             } else {
                 disconnectedClients.add(res);
             }
         } catch (error) {
-            logger.error(`[SSE] Error broadcasting to user ${userId}:`, error);
+            logger.warn(`[SSE] Error broadcasting to user ${userId}:`, error.message);
             disconnectedClients.add(res);
         }
     }
@@ -71,31 +111,50 @@ function broadcastToUser(userId, event, data) {
         removeClient(userId, res);
     }
 
-    // If no clients remain, log it
-    if (!clients.has(userId) || clients.get(userId).size === 0) {
-        logger.info(`[SSE] No active clients remaining for user: ${userId}`);
+    // Log results
+    if (successfulBroadcasts > 0) {
+        logger.info(`[SSE] Successfully broadcast '${event}' to ${successfulBroadcasts} client(s) for user: ${userId}`);
+    } else {
+        logger.warn(`[SSE] Failed to broadcast '${event}' to any clients for user: ${userId}`);
     }
+
+    return successfulBroadcasts > 0;
 }
 
 function broadcastToUsers(userIds, event, data) {
-    logger.info(`[SSE] Broadcasting to users: ${userIds}`);
+    logger.info(`[SSE] Broadcasting '${event}' to users: ${userIds.join(', ')}`);
+    let totalSuccessful = 0;
+
     for (const userId of userIds) {
-        broadcastToUser(userId, event, data);
+        if (broadcastToUser(userId, event, data)) {
+            totalSuccessful++;
+        }
     }
+
+    logger.info(`[SSE] Broadcast completed: ${totalSuccessful}/${userIds.length} users reached`);
+    return totalSuccessful;
 }
 
 function broadcastNewConversation(userId, conversation) {
     if (!conversation || !conversation.conversationId) {
         logger.error('[SSE] Invalid conversation object for broadcast:', conversation);
-        return;
+        return false;
     }
 
     logger.info(`[SSE] Broadcasting new conversation to user: ${userId}, conversationId: ${conversation.conversationId}`);
-    broadcastToUser(userId, 'newConversation', {
+    return broadcastToUser(userId, 'newConversation', {
         conversation,
         timestamp: new Date().toISOString()
     });
 }
+
+// Periodic cleanup of disconnected clients
+setInterval(() => {
+    logger.debug('[SSE] Running periodic cleanup of disconnected clients');
+    for (const userId of clients.keys()) {
+        cleanupDisconnectedClients(userId);
+    }
+}, 60000); // Clean up every minute
 
 module.exports = {
     addClient,
@@ -104,5 +163,6 @@ module.exports = {
     hasActiveUser,
     broadcastToUser,
     broadcastToUsers,
-    broadcastNewConversation
+    broadcastNewConversation,
+    cleanupDisconnectedClients
 };

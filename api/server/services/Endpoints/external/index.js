@@ -37,7 +37,8 @@ class ExternalClient extends BaseClient {
         this.options = {
             ...options,
             agent_id: options.agent_id,
-            model_parameters: options.model_parameters
+            model_parameters: options.model_parameters,
+            conversationId: options.conversationId
         };
         this.user = null;
     }
@@ -168,7 +169,8 @@ class ExternalClient extends BaseClient {
         logger.info('[ExternalClient] Options:', {
             user: this.user,
             endpoint: this.endpoint,
-            model: this.model
+            model: this.model,
+            conversationId: this.options.conversationId
         });
 
         if (!this.user) {
@@ -179,9 +181,16 @@ class ExternalClient extends BaseClient {
         // Convert string message to object if needed
         const messageObj = typeof message === 'string' ? { content: message } : message;
 
+        // CRITICAL FIX: Set conversation ID from options BEFORE creating/finding conversation
+        if (!messageObj.conversationId && this.options.conversationId) {
+            messageObj.conversationId = this.options.conversationId;
+            logger.info('[ExternalClient] Set conversationId from options:', this.options.conversationId);
+        }
+
         // First try to create conversation if needed
         let conversation = null;
         try {
+            logger.info('[ExternalClient] Attempting to find/create conversation');
             conversation = await this.createConversationIfNeeded(messageObj);
             if (conversation) {
                 logger.info('[ExternalClient] Created/found conversation:', conversation.conversationId);
@@ -211,29 +220,53 @@ class ExternalClient extends BaseClient {
             messageText = '';
         }
 
+        // Get the last message in the conversation to ensure proper threading
+        let parentMessageId = opts.parentMessageId || null;
+        try {
+            const { getMessages } = require('~/models');
+            const messages = await getMessages({ conversationId: finalConversationId });
+            if (messages && messages.length > 0) {
+                // Get the last message that isn't an error message and isn't already a child
+                const lastValidMessage = [...messages].reverse().find(msg =>
+                    !msg.error &&
+                    !messages.some(m => m.parentMessageId === msg.messageId)
+                );
+                if (lastValidMessage) {
+                    parentMessageId = lastValidMessage.messageId;
+                    logger.info('[ExternalClient] Set parentMessageId from last valid message:', parentMessageId);
+                }
+            }
+        } catch (error) {
+            logger.warn('[ExternalClient] Failed to get last message for parentMessageId:', error);
+        }
+
         // Format the message for LLM processing
         const formattedMessage = {
             messageId: uuidv4(),
             conversationId: finalConversationId,
-            parentMessageId: opts.parentMessageId,
-            role: 'external',  // Keep original role for our internal use
-            openAIRole: this.mapRoleToOpenAI('external'),  // Add mapped role for OpenAI
+            parentMessageId: parentMessageId,
+            role: 'external',
+            openAIRole: this.mapRoleToOpenAI('external'),
             isCreatedByUser: false,
-            text: messageText,  // Use the extracted text
-            content: [{ type: 'text', text: messageText }],  // Format content array
-            user: this.user,  // This should be a valid MongoDB ObjectId
+            text: messageText,
+            content: [{ type: 'text', text: messageText }],
+            user: this.user,
             endpoint: this.endpoint,
             metadata: {
                 ...messageObj?.metadata,
                 source: messageObj?.metadata?.source || 'external',
-                createdBy: 'external-service'  // This is just metadata, not a user ID
+                createdBy: 'external-service'
             }
         };
 
         // Create a minimal request object for saveMessage
         const req = {
             user: { id: this.user },
-            body: { isTemporary: false }
+            body: {
+                role: 'external',
+                user: 'system',
+                isTemporary: false
+            }
         };
 
         // Save the external message
@@ -255,7 +288,7 @@ class ExternalClient extends BaseClient {
         logger.info('[ExternalClient] Processing through LLM');
         const response = await this.processWithLLM(formattedMessage, { ...opts, conversationId: finalConversationId });
 
-        // Save the LLM response
+        // Save the LLM response with the same parent message ID
         logger.info('[ExternalClient] Saving LLM response');
         const llmResponse = {
             ...response,
@@ -264,20 +297,20 @@ class ExternalClient extends BaseClient {
             isCreatedByUser: false,
             messageId: uuidv4(),
             parentMessageId: savedMessage.messageId,
-            user: this.user,  // This should be a valid MongoDB ObjectId
+            user: this.user,
             endpoint: this.endpoint,
             metadata: {
                 source: 'external',
-                createdBy: 'external-service'  // This is just metadata, not a user ID
+                createdBy: 'external-service'
             }
         };
 
-        // Create a completely new request object for saving the LLM response to avoid any serialization issues
+        // Use the same request object structure for consistency
         const llmReq = {
             user: { id: this.user },
             body: {
                 role: 'external',
-                user: 'system', // Set as plain string, not String() constructor
+                user: 'system',
                 isTemporary: false
             }
         };
@@ -301,11 +334,40 @@ class ExternalClient extends BaseClient {
                 conversationId: savedResponse.conversationId
             });
 
-            // Broadcast both messages in a single event
-            broadcastToUsers([this.user], 'newMessage', {
+            // Enhanced logging for broadcasting
+            logger.info('[ExternalClient] About to broadcast messages:', {
+                userId: this.user,
+                userType: typeof this.user,
                 conversationId: savedMessage.conversationId,
-                messages: [savedMessage, savedResponse]
+                messageCount: 1,
+                savedResponseId: savedResponse.messageId
             });
+
+            // Ensure user ID is a string for SSE broadcasting
+            const userIdString = this.getUserIdString();
+            logger.info('[ExternalClient] Converting user ID for SSE broadcasting:', {
+                originalUserId: this.user,
+                userIdString: userIdString,
+                originalType: typeof this.user,
+                stringType: typeof userIdString
+            });
+
+            // Check if user has active SSE connections
+            const { hasActiveUser } = require('~/server/sseClients');
+            const hasActiveConnection = hasActiveUser(userIdString);
+            logger.info('[ExternalClient] User SSE connection status:', {
+                userId: userIdString,
+                hasActiveConnection
+            });
+
+            // Only broadcast the LLM response, not the user message
+            broadcastToUsers([userIdString], 'newMessage', {
+                conversationId: savedMessage.conversationId,
+                messages: [savedResponse],
+                timestamp: new Date().toISOString()
+            });
+
+            logger.info('[ExternalClient] Broadcast completed for newMessage event');
 
             // Return the conversation ID for reference
             return {
@@ -462,40 +524,25 @@ class ExternalClient extends BaseClient {
         }));
     }
 
-    async createConversationIfNeeded(message) {
-        // If we have a conversationId in the message, try to get the conversation
-        if (message.conversationId) {
-            try {
-                const existingConversation = await getConvo(null, message.conversationId);
-                if (existingConversation) {
-                    logger.info('[ExternalClient] Found existing conversation:', message.conversationId);
-                    // Update the user ID to match the existing conversation
-                    this.user = existingConversation.user;
-                    // Update endpoint and model from existing conversation
-                    this.endpoint = existingConversation.endpoint;
-                    this.model = existingConversation.model;
-                    return existingConversation;
-                }
-            } catch (error) {
-                logger.warn('[ExternalClient] Error getting existing conversation:', error);
-                throw error; // Re-throw to handle at higher level
+    async findExistingConversation(conversationId) {
+        try {
+            const existingConversation = await getConvo(null, conversationId);
+            if (existingConversation) {
+                logger.info('[ExternalClient] Found existing conversation:', conversationId);
+                // Update the user ID to match the existing conversation
+                this.user = existingConversation.user;
+                // Update endpoint and model from existing conversation
+                this.endpoint = existingConversation.endpoint;
+                this.model = existingConversation.model;
+                return existingConversation;
             }
+        } catch (error) {
+            logger.error('[ExternalClient] Error getting existing conversation:', error);
         }
+        return null;
+    }
 
-        // Ensure we have a valid user ID
-        if (!this.user) {
-            logger.error('[ExternalClient] No valid user ID available for conversation creation');
-            throw new Error('User ID is required for conversation creation');
-        }
-
-        // Get phone number from request metadata
-        const phoneNumber = this.req.phoneNumber;
-        if (!phoneNumber) {
-            logger.error('[ExternalClient] No phone number available for conversation creation');
-            throw new Error('Phone number is required for SMS conversation creation');
-        }
-
-        // Try to find existing conversation for this phone number
+    async findExistingSMSConversation(phoneNumber) {
         try {
             const existingConversations = await getConvo(this.user, null, {
                 'metadata.phoneNumber': phoneNumber,
@@ -515,16 +562,24 @@ class ExternalClient extends BaseClient {
             }
         } catch (error) {
             logger.warn('[ExternalClient] Error finding existing SMS conversation:', error);
-            // Continue to create new conversation
+        }
+        return null;
+    }
+
+    async createNewConversation(message, phoneNumber) {
+        // Ensure we have a valid user ID
+        if (!this.user) {
+            logger.error('[ExternalClient] No valid user ID available for conversation creation');
+            throw new Error('User ID is required for conversation creation');
         }
 
-        // Create new conversation for this phone number
+        // Create new conversation
         const newConversation = {
             conversationId: message.conversationId || uuidv4(),
             title: message.metadata?.title || `SMS Conversation with ${phoneNumber}`,
             endpoint: this.endpoint,
             model: this.model,
-            user: this.user, // This should be a valid MongoDB ObjectId
+            user: this.user,
             createdAt: new Date(),
             updatedAt: new Date(),
             metadata: {
@@ -542,7 +597,7 @@ class ExternalClient extends BaseClient {
         const req = {
             user: { id: this.user },
             body: { isTemporary: false },
-            isServiceRequest: true // Mark as service request
+            isServiceRequest: true
         };
 
         try {
@@ -550,8 +605,8 @@ class ExternalClient extends BaseClient {
                 req,
                 newConversation,
                 {
-                    context: 'ExternalClient.createConversationIfNeeded',
-                    isExternalMessage: true // Add flag for external message handling
+                    context: 'ExternalClient.createNewConversation',
+                    isExternalMessage: true
                 }
             );
 
@@ -561,18 +616,17 @@ class ExternalClient extends BaseClient {
 
             logger.info('[ExternalClient] Successfully created SMS conversation:', conversation.conversationId);
 
-            // Broadcast the new conversation event
-            broadcastNewConversation(conversation.user, conversation);
+            // Broadcast the new conversation
+            const userIdString = conversation.user.toString();
+            broadcastNewConversation(userIdString, conversation);
 
             return conversation;
         } catch (error) {
             if (error.code === 11000 && error.codeName === 'DuplicateKey') {
                 // If we get a duplicate key error, it means the conversation was created in parallel
-                // Just fetch and return the existing conversation
                 const existingConversation = await getConvo(null, newConversation.conversationId);
                 if (existingConversation) {
                     logger.info('[ExternalClient] Retrieved existing conversation after duplicate key error:', existingConversation.conversationId);
-                    // Update the user ID and other properties to match the existing conversation
                     this.user = existingConversation.user;
                     this.endpoint = existingConversation.endpoint;
                     this.model = existingConversation.model;
@@ -581,6 +635,33 @@ class ExternalClient extends BaseClient {
             }
             throw error;
         }
+    }
+
+    async createConversationIfNeeded(message) {
+        // If we have a conversationId in the message, try to get the conversation
+        if (message.conversationId) {
+            const existingConversation = await this.findExistingConversation(message.conversationId);
+            if (existingConversation) {
+                return existingConversation;
+            }
+            logger.info('[ExternalClient] No conversation found with ID, creating new one:', message.conversationId);
+        }
+
+        // Get phone number from request metadata
+        const phoneNumber = this.req.phoneNumber;
+        if (!phoneNumber) {
+            logger.error('[ExternalClient] No phone number available for conversation creation');
+            throw new Error('Phone number is required for SMS conversation creation');
+        }
+
+        // Try to find existing conversation for this phone number
+        const existingSMSConversation = await this.findExistingSMSConversation(phoneNumber);
+        if (existingSMSConversation) {
+            return existingSMSConversation;
+        }
+
+        // Create new conversation
+        return await this.createNewConversation(message, phoneNumber);
     }
 
     validateConversation(conversation) {
@@ -598,6 +679,24 @@ class ExternalClient extends BaseClient {
             return await this.createConversationIfNeeded(message);
         }
         throw error;
+    }
+
+    // Helper function to ensure user ID is always a string for SSE operations
+    getUserIdString() {
+        if (!this.user) {
+            throw new Error('User not set');
+        }
+
+        // Convert to string regardless of original format (ObjectId, Buffer, or string)
+        const userIdString = this.user.toString();
+        logger.debug('[ExternalClient] User ID conversion:', {
+            original: this.user,
+            originalType: typeof this.user,
+            converted: userIdString,
+            convertedType: typeof userIdString
+        });
+
+        return userIdString;
     }
 }
 
