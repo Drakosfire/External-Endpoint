@@ -240,9 +240,13 @@ class ExternalClient extends BaseClient {
             logger.warn('[ExternalClient] Failed to get last message for parentMessageId:', error);
         }
 
+        // Generate a single UUID for both messages
+        const messageId = uuidv4();
+        logger.info('[ExternalClient] Generated messageId:', messageId);
+
         // Format the message for LLM processing
         const formattedMessage = {
-            messageId: uuidv4(),
+            messageId: messageId,  // Use the same UUID
             conversationId: finalConversationId,
             parentMessageId: parentMessageId,
             role: 'external',
@@ -264,8 +268,9 @@ class ExternalClient extends BaseClient {
             user: { id: this.user },
             body: {
                 role: 'external',
-                user: 'system',
-                isTemporary: false
+                user: this.user,
+                isTemporary: false,
+                parentMessageId: parentMessageId
             }
         };
 
@@ -288,14 +293,14 @@ class ExternalClient extends BaseClient {
         logger.info('[ExternalClient] Processing through LLM');
         const response = await this.processWithLLM(formattedMessage, { ...opts, conversationId: finalConversationId });
 
-        // Save the LLM response with the same parent message ID
+        // Save the LLM response with the same message ID
         logger.info('[ExternalClient] Saving LLM response');
         const llmResponse = {
             ...response,
             conversationId: finalConversationId,
             role: 'assistant',
             isCreatedByUser: false,
-            messageId: uuidv4(),
+            messageId: messageId,  // Reuse the same UUID
             parentMessageId: savedMessage.messageId,
             user: this.user,
             endpoint: this.endpoint,

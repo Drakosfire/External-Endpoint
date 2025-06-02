@@ -27,13 +27,16 @@ const validateMessageReq = async (req, res, next) => {
 
         if (!parentMessage) {
           logger.warn('[validateMessageReq] Invalid parentMessageId provided:', req.body.parentMessageId);
-          // Don't reject the request, but log the warning
-        } else if (messages.some(msg => msg.parentMessageId === req.body.parentMessageId)) {
+          return res.status(400).json({ error: 'Invalid parent message ID' });
+        }
+
+        if (messages.some(msg => msg.parentMessageId === req.body.parentMessageId)) {
           logger.warn('[validateMessageReq] Parent message already has a child:', req.body.parentMessageId);
-          // Don't reject the request, but log the warning
+          return res.status(400).json({ error: 'Parent message already has a child' });
         }
       } catch (error) {
         logger.error('[validateMessageReq] Error validating parent message:', error);
+        return res.status(500).json({ error: 'Error validating parent message' });
       }
     }
 
