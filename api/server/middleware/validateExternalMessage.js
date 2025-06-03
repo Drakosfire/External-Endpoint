@@ -29,18 +29,23 @@ const validateExternalMessage = async (req, res, next) => {
             return res.status(403).json({ error: 'Invalid API key' });
         }
 
-        // Extract phone number from metadata
-        const phoneNumber = req.body.metadata?.phoneNumber;
+        // Extract phone number from various possible locations
+        const phoneNumber = req.body.metadata?.phoneNumber ||
+            req.body.from ||
+            (req.body.body && req.body.metadata?.phoneNumber);
+
         if (!phoneNumber) {
-            logger.warn('[validateExternalMessage] No phone number provided in metadata');
+            logger.warn('[validateExternalMessage] No phone number provided in request');
             return res.status(400).json({
-                error: 'Phone number required in metadata',
-                details: 'Please include phoneNumber in the metadata object of your request'
+                error: 'Phone number required',
+                details: 'Please include phoneNumber in metadata or from field'
             });
         }
 
         // Normalize phone number (remove spaces, dashes, etc)
         const normalizedPhone = phoneNumber.replace(/[^0-9+]/g, '');
+
+        logger.info('[validateExternalMessage] Processing message from:', normalizedPhone);
 
         // Try to find existing user by phone number
         let user = await findUser({
@@ -76,14 +81,8 @@ const validateExternalMessage = async (req, res, next) => {
         req.isServiceRequest = true;
         // Set user
         req.user = user;
-
         // Add phone number to request for conversation handling
         req.phoneNumber = normalizedPhone;
-
-        logger.info('[validateExternalMessage] External message request validated successfully', {
-            userId: user._id,
-            phoneNumber: normalizedPhone
-        });
 
         next();
     } catch (error) {

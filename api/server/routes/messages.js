@@ -170,12 +170,8 @@ router.post('/artifact/:messageId', async (req, res) => {
 });
 
 router.get('/stream', requireJwtAuth, (req, res) => {
-  // Enhanced logging for SSE connection setup
-  logger.info('[SSE /stream] New SSE connection request:', {
-    userId: req.user?.id,
-    userType: typeof req.user?.id,
-    userAgent: req.headers['user-agent'],
-    origin: req.headers.origin
+  logger.info('[SSE] New connection request:', {
+    userId: req.user?.id
   });
 
   res.setHeader('Content-Type', 'text/event-stream');
@@ -183,22 +179,13 @@ router.get('/stream', requireJwtAuth, (req, res) => {
   res.setHeader('Connection', 'keep-alive');
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Headers', 'Cache-Control');
-  res.setHeader('X-Accel-Buffering', 'no'); // Disable nginx buffering
+  res.setHeader('X-Accel-Buffering', 'no');
   res.flushHeaders();
 
   const userId = req.user.id;
-
-  // Ensure userId is a string for consistency
   const userIdString = userId.toString();
-  logger.info('[SSE /stream] Adding client:', {
-    originalUserId: userId,
-    userIdString: userIdString,
-    originalType: typeof userId,
-    stringType: typeof userIdString
-  });
 
   addClient(userIdString, res);
-  logger.info(`[SSE] Added client for user: ${userIdString}`);
 
   // Send initial connection confirmation
   try {
@@ -220,39 +207,34 @@ router.get('/stream', requireJwtAuth, (req, res) => {
           timestamp: new Date().toISOString()
         })}\n\n`);
         res.flush();
-        logger.debug(`[SSE] Heartbeat sent to user: ${userIdString}`);
       } else {
         clearInterval(heartbeatInterval);
         removeClient(userIdString, res);
       }
     } catch (error) {
-      logger.debug(`[SSE] Heartbeat failed for user ${userIdString}, cleaning up:`, error.message);
       clearInterval(heartbeatInterval);
       removeClient(userIdString, res);
     }
-  }, 30000); // Send heartbeat every 30 seconds
+  }, 30000);
 
   req.on('close', () => {
     clearInterval(heartbeatInterval);
     removeClient(userIdString, res);
-    logger.info(`[SSE] Connection closed for user: ${userIdString}`);
   });
 
   req.on('error', (error) => {
-    logger.error(`[SSE] Connection error for user ${userIdString}:`, error.message);
+    logger.error('[SSE] Connection error:', error);
     clearInterval(heartbeatInterval);
     removeClient(userIdString, res);
   });
 
-  // Handle response errors
   res.on('error', (error) => {
-    logger.error(`[SSE] Response error for user ${userIdString}:`, error.message);
+    logger.error('[SSE] Response error:', error);
     clearInterval(heartbeatInterval);
     removeClient(userIdString, res);
   });
 
   res.on('close', () => {
-    logger.debug(`[SSE] Response closed for user: ${userIdString}`);
     clearInterval(heartbeatInterval);
     removeClient(userIdString, res);
   });
@@ -274,27 +256,33 @@ router.post('/:conversationId', validateMessageReq, async (req, res) => {
     const message = req.body;
     let conversationId = req.params.conversationId;
 
-    logger.info('[Messages] Processing message request:', {
-      conversationId: conversationId,
-      messageRole: message.role,
+    logger.info('[Messages] Processing message:', {
+      conversationId,
+      role: message.role,
       isExternal: message.role === 'external'
     });
 
     if (message.role === 'external') {
       // Let the external client handle conversation creation
       const { initializeClient } = require('~/server/services/Endpoints/external/initialize');
+
+      // Ensure metadata exists and has phone number
+      if (!message.metadata) {
+        message.metadata = {};
+      }
+
+      // If we have a from field but no phone number in metadata, add it
+      if (message.from && !message.metadata.phoneNumber) {
+        message.metadata.phoneNumber = message.from;
+      }
+
       const endpointOption = {
         endpoint: 'external',
         modelOptions: {
           model: message.metadata?.model || 'gpt-4o'
         },
-        conversationId: req.params.conversationId // Pass conversation ID from params
+        conversationId: req.params.conversationId
       };
-
-      logger.info('[Messages] Initializing external client with options:', {
-        conversationId: endpointOption.conversationId,
-        model: endpointOption.modelOptions.model
-      });
 
       const { client } = await initializeClient({
         req,
@@ -302,7 +290,6 @@ router.post('/:conversationId', validateMessageReq, async (req, res) => {
         endpointOption
       });
 
-      // Process message (client will handle conversation creation if needed)
       await client.sendMessage(message);
       return res.end();
     }
@@ -318,6 +305,7 @@ router.post('/:conversationId', validateMessageReq, async (req, res) => {
         { context: 'POST /api/messages/:conversationId' },
       );
       if (!savedMessage) {
+        logger.error('[Messages] Failed to save message');
         return res.status(400).json({ error: 'Message not saved' });
       }
       await saveConvo(
@@ -330,11 +318,11 @@ router.post('/:conversationId', validateMessageReq, async (req, res) => {
       );
       return res.status(201).json(savedMessage);
     } catch (error) {
-      logger.error('Error saving message:', error);
+      logger.error('[Messages] Error saving message:', error);
       return res.status(500).json({ error: 'Internal server error' });
     }
   } catch (error) {
-    logger.error('Error processing message:', error);
+    logger.error('[Messages] Error processing message:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -357,6 +345,13 @@ router.put('/:conversationId/:messageId', validateMessageReq, async (req, res) =
   try {
     const { conversationId, messageId } = req.params;
     const { text, index, model } = req.body;
+
+    logger.info('[Messages] Updating message:', {
+      conversationId,
+      messageId,
+      hasText: !!text,
+      hasIndex: index !== undefined
+    });
 
     if (index === undefined) {
       const tokenCount = await countTokens(text, model);
@@ -400,7 +395,7 @@ router.put('/:conversationId/:messageId', validateMessageReq, async (req, res) =
     const result = await updateMessage(req, { messageId, content: updatedContent, tokenCount });
     return res.status(200).json(result);
   } catch (error) {
-    logger.error('Error updating message:', error);
+    logger.error('[Messages] Error updating message:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
