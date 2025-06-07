@@ -29,6 +29,24 @@ const validateExternalMessage = async (req, res, next) => {
             return res.status(403).json({ error: 'Invalid API key' });
         }
 
+        // Basic validation for agent requests (format check only)
+        if (req.body.metadata?.endpoint === 'agents') {
+            logger.info('[validateExternalMessage] Agent request detected');
+
+            if (!req.body.metadata.agent_id) {
+                logger.warn('[validateExternalMessage] agent_id required for agent endpoint');
+                return res.status(400).json({ error: 'agent_id required for agent endpoint' });
+            }
+
+            // Simple format validation
+            if (!req.body.metadata.agent_id.startsWith('agent_')) {
+                logger.warn('[validateExternalMessage] Invalid agent_id format');
+                return res.status(400).json({ error: 'Invalid agent_id format' });
+            }
+
+            logger.info('[validateExternalMessage] Agent request format validated, deferring access check to ExternalClient');
+        }
+
         // Extract phone number from various possible locations
         const phoneNumber = req.body.metadata?.phoneNumber ||
             req.body.from ||
@@ -84,6 +102,7 @@ const validateExternalMessage = async (req, res, next) => {
         // Add phone number to request for conversation handling
         req.phoneNumber = normalizedPhone;
 
+        logger.info('[validateExternalMessage] External message validation complete');
         next();
     } catch (error) {
         logger.error('[validateExternalMessage] Error processing request:', error);

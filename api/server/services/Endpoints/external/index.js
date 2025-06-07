@@ -402,8 +402,11 @@ class ExternalClient extends BaseClient {
             throw new Error('Conversation not found');
         }
 
-        // Use the conversation's endpoint type for LLM initialization
-        const llmEndpointType = conversation.endpointType || 'openAI';  // Default to OpenAI if not specified
+        // Check for agent endpoint in message metadata first, then fall back to conversation
+        const requestedEndpoint = message.metadata?.endpoint || conversation.endpoint;
+
+        // Use the requested endpoint or conversation's endpoint type for LLM initialization
+        const llmEndpointType = requestedEndpoint || conversation.endpointType || 'openAI';  // Default to OpenAI if not specified
         logger.info(`[ExternalClient] Using LLM endpoint type: ${llmEndpointType}`);
 
         // Map endpoint type to correct case
@@ -422,6 +425,16 @@ class ExternalClient extends BaseClient {
 
         const correctEndpointType = endpointMap[llmEndpointType.toLowerCase()] || llmEndpointType;
         logger.info(`[ExternalClient] Mapped endpoint type: ${correctEndpointType}`);
+
+        // Handle agent endpoint with enhanced detection
+        if (correctEndpointType === 'agents') {
+            // Set agent_id from message metadata or conversation or options
+            const agent_id = message.metadata?.agent_id || conversation.agent_id || this.options.agent_id;
+            if (agent_id) {
+                this.options.agent_id = agent_id;
+                logger.info(`[ExternalClient] Using agent_id: ${agent_id}`);
+            }
+        }
 
         // Get the appropriate LLM client based on conversation endpoint
         let initializeModule;
@@ -446,6 +459,24 @@ class ExternalClient extends BaseClient {
             }
         };
 
+        logger.info('[ExternalClient] Initializing LLM client with options:', {
+            endpoint: endpointOption.endpoint,
+            model: endpointOption.modelOptions.model,
+            agent_id: endpointOption.agent_id
+        });
+
+        // Ensure user information is available in the request BEFORE agent loading
+        if (!this.req.user) {
+            this.req.user = { id: this.user };
+        } else if (!this.req.user.id) {
+            this.req.user.id = this.user;
+        }
+
+        logger.info('[ExternalClient] User context set:', {
+            userId: this.req.user.id,
+            userType: typeof this.req.user.id
+        });
+
         // Handle agent endpoint
         if (correctEndpointType === 'agents') {
             logger.info('[ExternalClient] Loading agent for external message');
@@ -464,6 +495,14 @@ class ExternalClient extends BaseClient {
 
             endpointOption.agent = Promise.resolve(agent);
             endpointOption.agent_id = this.options.agent_id;
+
+            // Extract and use dynamic instructions from message metadata
+            if (message.metadata?.instructions) {
+                logger.info('[ExternalClient] Using dynamic instructions from metadata');
+                endpointOption.additional_instructions = message.metadata.instructions;
+                logger.debug('[ExternalClient] Dynamic instructions:', message.metadata.instructions);
+            }
+
             logger.info('[ExternalClient] Agent loaded successfully');
         }
 
@@ -578,12 +617,19 @@ class ExternalClient extends BaseClient {
             throw new Error('User ID is required for conversation creation');
         }
 
+        // Check if this is an agent request
+        const isAgentRequest = message.metadata?.endpoint === 'agents' && message.metadata?.agent_id;
+        const endpoint = isAgentRequest ? 'agents' : this.endpoint;
+        const model = isAgentRequest ? (message.metadata?.model || 'gpt-4o') : this.model;
+
         // Create new conversation
         const newConversation = {
             conversationId: message.conversationId || uuidv4(),
-            title: message.metadata?.title || `SMS Conversation with ${phoneNumber}`,
-            endpoint: this.endpoint,
-            model: this.model,
+            title: message.metadata?.title || (isAgentRequest ?
+                `Agent Conversation with ${phoneNumber}` :
+                `SMS Conversation with ${phoneNumber}`),
+            endpoint: endpoint,
+            model: model,
             user: this.user,
             createdAt: new Date(),
             updatedAt: new Date(),
@@ -596,7 +642,17 @@ class ExternalClient extends BaseClient {
             }
         };
 
-        logger.info('[ExternalClient] Creating new SMS conversation:', newConversation.conversationId);
+        // Add agent_id to conversation if this is an agent request
+        if (isAgentRequest) {
+            newConversation.agent_id = message.metadata.agent_id;
+            logger.info('[ExternalClient] Creating agent conversation:', {
+                conversationId: newConversation.conversationId,
+                agent_id: newConversation.agent_id,
+                endpoint: newConversation.endpoint
+            });
+        } else {
+            logger.info('[ExternalClient] Creating SMS conversation:', newConversation.conversationId);
+        }
 
         // Create a minimal request object for saveConvo
         const req = {
@@ -619,7 +675,11 @@ class ExternalClient extends BaseClient {
                 throw new Error('Failed to create conversation');
             }
 
-            logger.info('[ExternalClient] Successfully created SMS conversation:', conversation.conversationId);
+            logger.info('[ExternalClient] Successfully created conversation:', {
+                conversationId: conversation.conversationId,
+                endpoint: conversation.endpoint,
+                agent_id: conversation.agent_id
+            });
 
             // Broadcast the new conversation
             const userIdString = conversation.user.toString();

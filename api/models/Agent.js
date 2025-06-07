@@ -106,44 +106,98 @@ const loadEphemeralAgent = ({ req, agent_id, endpoint, model_parameters: _m }) =
  * @returns {Promise<Agent|null>} The agent document as a plain object, or null if not found.
  */
 const loadAgent = async ({ req, agent_id, endpoint, model_parameters }) => {
+  console.log('[loadAgent] Starting agent load:', {
+    agent_id,
+    endpoint,
+    userId: req.user?.id,
+    userType: typeof req.user?.id
+  });
+
   if (!agent_id) {
+    console.log('[loadAgent] No agent_id provided');
     return null;
   }
+
   if (agent_id === EPHEMERAL_AGENT_ID) {
+    console.log('[loadAgent] Loading ephemeral agent');
     return loadEphemeralAgent({ req, agent_id, endpoint, model_parameters });
   }
+
+  console.log('[loadAgent] Getting agent from database:', agent_id);
   const agent = await getAgent({
     id: agent_id,
   });
 
   if (!agent) {
+    console.log('[loadAgent] Agent not found in database:', agent_id);
     return null;
   }
 
+  console.log('[loadAgent] Agent found:', {
+    id: agent.id,
+    name: agent.name,
+    author: agent.author?.toString(),
+    projectIds: agent.projectIds?.map(p => p.toString())
+  });
+
   agent.version = agent.versions ? agent.versions.length : 0;
 
-  if (agent.author.toString() === req.user.id) {
+  // Check if user is the author
+  const userIdString = req.user.id.toString();
+  const authorString = agent.author.toString();
+  console.log('[loadAgent] Checking author access:', {
+    userId: userIdString,
+    authorId: authorString,
+    isAuthor: authorString === userIdString
+  });
+
+  if (authorString === userIdString) {
+    console.log('[loadAgent] User is author, granting access');
     return agent;
   }
 
   if (!agent.projectIds) {
+    console.log('[loadAgent] Agent has no projectIds, access denied');
     return null;
   }
+
+  console.log('[loadAgent] Checking project-based access...');
 
   const cache = getLogStores(CONFIG_STORE);
   /** @type {TStartupConfig} */
   const cachedStartupConfig = await cache.get(STARTUP_CONFIG);
   let { instanceProjectId } = cachedStartupConfig ?? {};
+
+  console.log('[loadAgent] Cached instance project ID:', instanceProjectId);
+
   if (!instanceProjectId) {
-    instanceProjectId = (await getProjectByName(GLOBAL_PROJECT_NAME, '_id'))._id.toString();
+    console.log('[loadAgent] No cached instance project ID, fetching from database');
+    const globalProject = await getProjectByName(GLOBAL_PROJECT_NAME, '_id');
+    instanceProjectId = globalProject._id.toString();
+    console.log('[loadAgent] Fetched instance project ID:', instanceProjectId);
   }
+
+  console.log('[loadAgent] Checking agent project access:', {
+    instanceProjectId,
+    agentProjectIds: agent.projectIds.map(p => p.toString())
+  });
 
   for (const projectObjectId of agent.projectIds) {
     const projectId = projectObjectId.toString();
+    console.log('[loadAgent] Checking project:', {
+      projectId,
+      instanceProjectId,
+      matches: projectId === instanceProjectId
+    });
+
     if (projectId === instanceProjectId) {
+      console.log('[loadAgent] Agent is in global project, granting access');
       return agent;
     }
   }
+
+  console.log('[loadAgent] No project access found, access denied');
+  return null;
 };
 
 /**
