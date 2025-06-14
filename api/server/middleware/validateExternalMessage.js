@@ -1,5 +1,6 @@
 const { logger } = require('~/config');
 const { findUser, createUser, updateUser } = require('~/models');
+const { getConvo } = require('~/models/Conversation');
 
 /**
  * Middleware to validate external message requests with API key authentication
@@ -9,8 +10,7 @@ const { findUser, createUser, updateUser } = require('~/models');
  */
 const validateExternalMessage = async (req, res, next) => {
     try {
-        logger.debug('[validateExternalMessage] Validating external message request');
-
+        logger.debug('[validateExternalMessage] Validating external message request')
         // Verify this is an external message request
         if (req.body.role !== 'external') {
             logger.warn('[validateExternalMessage] Invalid role for external message request');
@@ -27,6 +27,77 @@ const validateExternalMessage = async (req, res, next) => {
         if (apiKey !== process.env.EXTERNAL_MESSAGE_API_KEY) {
             logger.warn('[validateExternalMessage] Invalid API key provided');
             return res.status(403).json({ error: 'Invalid API key' });
+        }
+
+        // Check if this is a scheduled message
+        const isScheduledMessage = req.body.metadata?.source === 'scheduled' ||
+            req.body.metadata?.source === 'scheduled-task' ||
+            req.body.metadata?.type === 'scheduled' ||
+            req.body.metadata?.taskName; // Detect scheduled task by taskName presence
+
+        if (isScheduledMessage) {
+            logger.debug('[validateExternalMessage] Scheduled message detected, skipping phone validation');
+
+            // For scheduled messages, we need to get the user from the existing conversation
+            // Extract conversationId from URL path since req.params isn't available yet
+            let conversationId = req.body.conversationId;
+
+            // If not in body, try to extract from URL path
+            if (!conversationId && req.path) {
+                const pathMatch = req.path.match(/\/api\/messages\/([a-f0-9-]{36})/i);
+                if (pathMatch) {
+                    conversationId = pathMatch[1];
+                }
+            }
+
+            // Also try req.url if req.path didn't work
+            if (!conversationId && req.url) {
+                const urlMatch = req.url.match(/\/api\/messages\/([a-f0-9-]{36})/i);
+                if (urlMatch) {
+                    conversationId = urlMatch[1];
+                }
+            }
+
+            if (!conversationId) {
+                logger.error('[validateExternalMessage] Conversation ID required for scheduled messages');
+                return res.status(400).json({ error: 'Conversation ID required for scheduled messages' });
+            }
+
+            logger.debug('[validateExternalMessage] Extracted conversation ID for scheduled message:', conversationId);
+
+            try {
+                const conversation = await getConvo(null, conversationId);
+                if (!conversation) {
+                    logger.error('[validateExternalMessage] Conversation not found for scheduled message:', conversationId);
+                    return res.status(404).json({ error: 'Conversation not found for scheduled message' });
+                }
+
+                // Use the conversation owner as the user
+                const user = await findUser({ _id: conversation.user });
+                if (!user) {
+                    logger.error('[validateExternalMessage] User not found for conversation:', conversation.user);
+                    return res.status(404).json({ error: 'User not found for conversation' });
+                }
+
+                logger.info('[validateExternalMessage] Using conversation owner for scheduled message:', {
+                    conversationId,
+                    userId: user._id.toString(),
+                    taskName: req.body.metadata?.taskName
+                });
+
+                // Mark as service request for message handling
+                req.isServiceRequest = true;
+                // Set user from conversation owner
+                req.user = user;
+                // Mark as scheduled message
+                req.isScheduledMessage = true;
+
+                logger.debug('[validateExternalMessage] Scheduled message validation complete');
+                return next();
+            } catch (error) {
+                logger.error('[validateExternalMessage] Error processing scheduled message:', error);
+                return res.status(500).json({ error: 'Failed to process scheduled message' });
+            }
         }
 
         // Basic validation for agent requests (format check only)

@@ -503,17 +503,36 @@ class ExternalClient extends BaseClient {
             throw new Error('User ID is required for conversation creation');
         }
 
+        // Check if this is a scheduled message
+        const isScheduledMessage = this.req.isScheduledMessage ||
+            message.metadata?.source === 'scheduled' ||
+            message.metadata?.source === 'scheduled-task' ||
+            message.metadata?.type === 'scheduled' ||
+            message.metadata?.taskName;
+
         // Check if this is an agent request
         const isAgentRequest = message.metadata?.endpoint === 'agents' && message.metadata?.agent_id;
         const endpoint = isAgentRequest ? 'agents' : this.endpoint;
         const model = isAgentRequest ? (message.metadata?.model || 'gpt-4o') : this.model;
 
+        // Determine conversation title and source
+        let title, source;
+        if (isScheduledMessage) {
+            title = message.metadata?.title ||
+                (message.metadata?.taskName ? `Scheduled: ${message.metadata.taskName}` : 'Scheduled Message');
+            source = 'scheduled';
+        } else if (isAgentRequest) {
+            title = message.metadata?.title || `Agent Conversation with ${phoneNumber}`;
+            source = 'sms';
+        } else {
+            title = message.metadata?.title || `SMS Conversation with ${phoneNumber}`;
+            source = 'sms';
+        }
+
         // Create new conversation
         const newConversation = {
             conversationId: message.conversationId || uuidv4(),
-            title: message.metadata?.title || (isAgentRequest ?
-                `Agent Conversation with ${phoneNumber}` :
-                `SMS Conversation with ${phoneNumber}`),
+            title: title,
             endpoint: endpoint,
             model: model,
             user: this.user,
@@ -521,8 +540,8 @@ class ExternalClient extends BaseClient {
             updatedAt: new Date(),
             metadata: {
                 ...message.metadata,
-                phoneNumber: phoneNumber,
-                source: 'sms',
+                ...(phoneNumber && { phoneNumber: phoneNumber }),
+                source: source,
                 createdBy: 'external-service',
                 lastMessage: new Date()
             }
@@ -534,6 +553,13 @@ class ExternalClient extends BaseClient {
             logger.info('[ExternalClient] Creating agent conversation:', {
                 conversationId: newConversation.conversationId,
                 agent_id: newConversation.agent_id,
+                endpoint: newConversation.endpoint,
+                source: source
+            });
+        } else if (isScheduledMessage) {
+            logger.info('[ExternalClient] Creating scheduled conversation:', {
+                conversationId: newConversation.conversationId,
+                taskName: message.metadata?.taskName,
                 endpoint: newConversation.endpoint
             });
         } else {
@@ -598,7 +624,28 @@ class ExternalClient extends BaseClient {
             logger.info('[ExternalClient] No conversation found with ID, creating new one:', message.conversationId);
         }
 
-        // Get phone number from request metadata
+        // Check if this is a scheduled message
+        const isScheduledMessage = this.req.isScheduledMessage ||
+            message.metadata?.source === 'scheduled' ||
+            message.metadata?.source === 'scheduled-task' ||
+            message.metadata?.type === 'scheduled' ||
+            message.metadata?.taskName;
+
+        if (isScheduledMessage) {
+            logger.info('[ExternalClient] Scheduled message detected, skipping phone number requirement');
+
+            // For scheduled messages, we should have a conversation ID
+            if (!message.conversationId) {
+                logger.error('[ExternalClient] Scheduled message must have a conversation ID');
+                throw new Error('Scheduled message must have a conversation ID');
+            }
+
+            // This shouldn't happen since we should have found the conversation above
+            logger.warn('[ExternalClient] Creating new conversation for scheduled message (unexpected)');
+            return await this.createNewConversation(message, null);
+        }
+
+        // Get phone number from request metadata (for SMS messages)
         const phoneNumber = this.req.phoneNumber;
         if (!phoneNumber) {
             logger.error('[ExternalClient] No phone number available for conversation creation');
