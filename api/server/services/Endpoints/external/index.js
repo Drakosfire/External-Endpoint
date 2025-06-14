@@ -6,6 +6,7 @@ const { getConvo } = require('~/models/Conversation');
 const { broadcastToUsers, broadcastNewConversation } = require('~/server/sseClients');
 const { SystemRoles } = require('librechat-data-provider');
 const { ObjectId } = require('mongodb');
+const User = require('~/models/User');
 
 // Custom extractor to get JWT from query param or Authorization header
 const extractJwtToken = (req) => {
@@ -65,7 +66,7 @@ class ExternalClient extends BaseClient {
             throw new Error('Request and response objects are required for ExternalClient initialization');
         }
 
-        // For external messages, we should always have a user from validateExternalMessage
+        // PRIORITY 1: Always use phone number-based user from validateExternalMessage for external messages
         if (this.req.user) {
             // Ensure we have the full user object, not just the ID
             if (typeof this.req.user === 'string' || this.req.user instanceof ObjectId) {
@@ -73,14 +74,14 @@ class ExternalClient extends BaseClient {
             } else {
                 this.user = this.req.user._id || this.req.user.id;
             }
-            logger.info('[ExternalClient] Using phone number-based user from request:', {
-                userId: this.user,
+            logger.info('[ExternalClient] Using phone number-based user from request (PRIORITY):', {
+                userId: typeof this.user === 'object' ? this.user.toString() : this.user,
                 phoneNumber: this.req.phoneNumber
             });
             return;
         }
 
-        // If we somehow don't have a user from the request (shouldn't happen),
+        // PRIORITY 2: If we somehow don't have a user from the request (shouldn't happen),
         // try other methods as fallback
         if (this.options.user) {
             this.user = this.options.user._id || this.options.user.id;
@@ -88,7 +89,8 @@ class ExternalClient extends BaseClient {
             return;
         }
 
-        // If no user in options, try to get from conversation owner
+        // PRIORITY 3: Only use conversation owner as last resort for non-external messages
+        // NOTE: This should not happen for external messages since validateExternalMessage sets req.user
         if (this.options.conversationId) {
             try {
                 logger.info('[ExternalClient] Attempting to get conversation:', this.options.conversationId);
@@ -96,7 +98,7 @@ class ExternalClient extends BaseClient {
                 logger.info('[ExternalClient] Conversation found:', conversation ? 'Yes' : 'No');
                 if (conversation && conversation.user) {
                     this.user = conversation.user;
-                    logger.info('[ExternalClient] Using user from conversation owner:', this.user);
+                    logger.warn('[ExternalClient] FALLBACK: Using user from conversation owner (this should not happen for external messages):', this.user);
                     return;
                 }
             } catch (err) {
@@ -165,9 +167,10 @@ class ExternalClient extends BaseClient {
     }
 
     async sendMessage(message, opts = {}) {
-        logger.info('[ExternalClient] Processing external message');
-        logger.info('[ExternalClient] Options:', {
-            user: this.user,
+        logger.debug('[ExternalClient] Processing external message');
+        logger.debug('[ExternalClient] Options:', {
+            user: typeof this.user === 'object' ? this.user.toString() : this.user,
+            userType: typeof this.user,
             endpoint: this.endpoint,
             model: this.model,
             conversationId: this.options.conversationId
@@ -184,16 +187,16 @@ class ExternalClient extends BaseClient {
         // CRITICAL FIX: Set conversation ID from options BEFORE creating/finding conversation
         if (!messageObj.conversationId && this.options.conversationId) {
             messageObj.conversationId = this.options.conversationId;
-            logger.info('[ExternalClient] Set conversationId from options:', this.options.conversationId);
+            logger.debug('[ExternalClient] Set conversationId from options:', this.options.conversationId);
         }
 
         // First try to create conversation if needed
         let conversation = null;
         try {
-            logger.info('[ExternalClient] Attempting to find/create conversation');
+            logger.debug('[ExternalClient] Attempting to find/create conversation');
             conversation = await this.createConversationIfNeeded(messageObj);
             if (conversation) {
-                logger.info('[ExternalClient] Created/found conversation:', conversation.conversationId);
+                logger.debug('[ExternalClient] Created/found conversation:', conversation.conversationId);
                 messageObj.conversationId = conversation.conversationId;
                 // Update client properties from conversation
                 this.endpoint = conversation.endpoint;
@@ -226,36 +229,33 @@ class ExternalClient extends BaseClient {
             const { getMessages } = require('~/models');
             const messages = await getMessages({ conversationId: finalConversationId });
             if (messages && messages.length > 0) {
-                // Get the last message that isn't an error message and isn't already a child
-                const lastValidMessage = [...messages].reverse().find(msg =>
-                    !msg.error &&
-                    !messages.some(m => m.parentMessageId === msg.messageId)
-                );
+                // Sort messages by createdAt to get the actual last message
+                const sortedMessages = messages.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+
+                // Get the last message that isn't an error message
+                const lastValidMessage = [...sortedMessages].reverse().find(msg => !msg.error);
+
                 if (lastValidMessage) {
                     parentMessageId = lastValidMessage.messageId;
-                    logger.info('[ExternalClient] Set parentMessageId from last valid message:', parentMessageId);
+                    logger.info('[ExternalClient] Set parentMessageId from last valid message:', {
+                        parentMessageId,
+                        lastMessageText: lastValidMessage.text?.substring(0, 50) + '...',
+                        lastMessageRole: lastValidMessage.role,
+                        lastMessageCreatedAt: lastValidMessage.createdAt
+                    });
                 }
             }
         } catch (error) {
             logger.warn('[ExternalClient] Failed to get last message for parentMessageId:', error);
         }
 
-        // Generate a single UUID for both messages
-        const messageId = uuidv4();
-        logger.info('[ExternalClient] Generated messageId:', messageId);
-
-        // Format the message for LLM processing
+        // Process through LLM directly - let BaseClient handle all message creation
+        logger.info('[ExternalClient] Processing through LLM');
         const formattedMessage = {
-            messageId: messageId,  // Use the same UUID
-            conversationId: finalConversationId,
-            parentMessageId: parentMessageId,
-            role: 'external',
-            openAIRole: this.mapRoleToOpenAI('external'),
-            isCreatedByUser: false,
             text: messageText,
             content: [{ type: 'text', text: messageText }],
-            user: this.user,
-            endpoint: this.endpoint,
+            conversationId: finalConversationId,
+            parentMessageId: parentMessageId,
             metadata: {
                 ...messageObj?.metadata,
                 source: messageObj?.metadata?.source || 'external',
@@ -263,136 +263,18 @@ class ExternalClient extends BaseClient {
             }
         };
 
-        // Create a minimal request object for saveMessage
-        const req = {
-            user: { id: this.user },
-            body: {
-                role: 'external',
-                user: this.user,
-                isTemporary: false,
-                parentMessageId: parentMessageId
-            }
-        };
-
-        // Save the external message
-        logger.info('[ExternalClient] Saving external message');
-        const savedMessage = await saveMessage(
-            req,
-            formattedMessage,
-            { context: 'ExternalClient.sendMessage' }
-        );
-
-        if (!savedMessage) {
-            logger.error('[ExternalClient] Failed to save external message');
-            throw new Error('Failed to save external message');
-        }
-
-        logger.info('[ExternalClient] External message saved successfully');
-
-        // Process through LLM
-        logger.info('[ExternalClient] Processing through LLM');
-        const response = await this.processWithLLM(formattedMessage, { ...opts, conversationId: finalConversationId });
-
-        // Save the LLM response with the same message ID
-        logger.info('[ExternalClient] Saving LLM response');
-        const llmResponse = {
-            ...response,
+        const response = await this.processWithLLM(formattedMessage, {
+            ...opts,
             conversationId: finalConversationId,
-            role: 'assistant',
-            isCreatedByUser: false,
-            messageId: messageId,  // Reuse the same UUID
-            parentMessageId: savedMessage.messageId,
-            user: this.user,
-            endpoint: this.endpoint,
-            metadata: {
-                source: 'external',
-                createdBy: 'external-service'
-            }
+            parentMessageId: parentMessageId
+        });
+
+        // Return the conversation ID for reference
+        return {
+            conversationId: finalConversationId,
+            messageId: response.messageId,
+            responseId: response.messageId
         };
-
-        // Use the same request object structure for consistency
-        const llmReq = {
-            user: { id: this.user },
-            body: {
-                role: 'external',
-                user: 'system',
-                isTemporary: false
-            }
-        };
-
-        logger.info(`[ExternalClient] Final request state before saveMessage: hasUser=${!!llmReq.user}, userId=${llmReq.user?.id}, bodyRole=${llmReq.body?.role}, bodyUser=${llmReq.body?.user}, bodyUserType=${typeof llmReq.body?.user}, messageId=${llmResponse.messageId}, conversationId=${llmResponse.conversationId}`);
-
-        try {
-            const savedResponse = await saveMessage(
-                llmReq,
-                llmResponse,
-                { context: 'ExternalClient.sendMessage - LLM Response' }
-            );
-
-            if (!savedResponse) {
-                logger.error('[ExternalClient] Failed to save LLM response - saveMessage returned null');
-                throw new Error('Failed to save LLM response');
-            }
-
-            logger.info('[ExternalClient] LLM response saved successfully:', {
-                messageId: savedResponse.messageId,
-                conversationId: savedResponse.conversationId
-            });
-
-            // Enhanced logging for broadcasting
-            logger.info('[ExternalClient] About to broadcast messages:', {
-                userId: this.user,
-                userType: typeof this.user,
-                conversationId: savedMessage.conversationId,
-                messageCount: 1,
-                savedResponseId: savedResponse.messageId
-            });
-
-            // Ensure user ID is a string for SSE broadcasting
-            const userIdString = this.getUserIdString();
-            logger.info('[ExternalClient] Converting user ID for SSE broadcasting:', {
-                originalUserId: this.user,
-                userIdString: userIdString,
-                originalType: typeof this.user,
-                stringType: typeof userIdString
-            });
-
-            // Check if user has active SSE connections
-            const { hasActiveUser } = require('~/server/sseClients');
-            const hasActiveConnection = hasActiveUser(userIdString);
-            logger.info('[ExternalClient] User SSE connection status:', {
-                userId: userIdString,
-                hasActiveConnection
-            });
-
-            // Only broadcast the LLM response, not the user message
-            broadcastToUsers([userIdString], 'newMessage', {
-                conversationId: savedMessage.conversationId,
-                messages: [savedResponse],
-                timestamp: new Date().toISOString()
-            });
-
-            logger.info('[ExternalClient] Broadcast completed for newMessage event');
-
-            // Return the conversation ID for reference
-            return {
-                conversationId: finalConversationId,
-                messageId: savedMessage.messageId,
-                responseId: savedResponse.messageId
-            };
-        } catch (error) {
-            logger.error('[ExternalClient] Error saving LLM response:', {
-                error: error.message,
-                stack: error.stack,
-                requestState: {
-                    hasUser: !!llmReq.user,
-                    userId: llmReq.user?.id,
-                    bodyRole: llmReq.body?.role,
-                    bodyUser: llmReq.body?.user
-                }
-            });
-            throw error;
-        }
     }
 
     async processWithLLM(message, opts = {}) {
@@ -497,7 +379,11 @@ class ExternalClient extends BaseClient {
             endpointOption.agent_id = this.options.agent_id;
 
             // Extract and use dynamic instructions from message metadata
-            if (message.metadata?.instructions) {
+            if (message.metadata?.additional_instructions) {
+                logger.info('[ExternalClient] Using additional instructions from metadata');
+                endpointOption.additional_instructions = message.metadata.additional_instructions;
+                logger.debug('[ExternalClient] Additional instructions:', message.metadata.additional_instructions);
+            } else if (message.metadata?.instructions) {
                 logger.info('[ExternalClient] Using dynamic instructions from metadata');
                 endpointOption.additional_instructions = message.metadata.instructions;
                 logger.debug('[ExternalClient] Dynamic instructions:', message.metadata.instructions);
@@ -762,6 +648,135 @@ class ExternalClient extends BaseClient {
         });
 
         return userIdString;
+    }
+
+    async _resolveUser(phoneNumber) {
+        try {
+            // First try to find existing user by phone number
+            const user = await User.findOne({ phoneNumber });
+            if (phoneNumber) {
+                logger.info('[ExternalClient] Using phone number-based user from request (PRIORITY):', {
+                    phoneNumber,
+                    userId: user._id.toString()
+                });
+                return user;
+            }
+
+            // If no phone number provided, use default user
+            const defaultUser = await User.findOne({ email: 'sms-user@librechat.ai' });
+            if (!defaultUser) {
+                throw new Error('Default SMS user not found');
+            }
+            logger.info('[ExternalClient] Using default SMS user:', {
+                userId: defaultUser._id.toString()
+            });
+            return defaultUser;
+        } catch (error) {
+            logger.error('[ExternalClient] Error resolving user:', error);
+            throw error;
+        }
+    }
+
+    async _initializeClient(options) {
+        try {
+            const { user, conversationId, agent_id } = options;
+
+            // Log options with stringified user ID
+            logger.info('[ExternalClient] Options:', {
+                model: this.model,
+                user: {
+                    _id: user._id.toString(),
+                    phoneNumber: user.phoneNumber
+                }
+            });
+
+            // PRIORITY 1: Always use phone number-based user from validateExternalMessage for external messages
+            if (this.req.user) {
+                // Ensure we have the full user object, not just the ID
+                if (typeof this.req.user === 'string' || this.req.user instanceof ObjectId) {
+                    this.user = this.req.user;
+                } else {
+                    this.user = this.req.user._id || this.req.user.id;
+                }
+                logger.info('[ExternalClient] Using phone number-based user from request (PRIORITY):', {
+                    phoneNumber: this.req.phoneNumber
+                });
+                return;
+            }
+
+            // PRIORITY 2: If we somehow don't have a user from the request (shouldn't happen),
+            // try other methods as fallback
+            if (this.options.user) {
+                this.user = this.options.user._id || this.options.user.id;
+                logger.info('[ExternalClient] Using user from options:', this.user);
+                return;
+            }
+
+            // PRIORITY 3: Only use conversation owner as last resort for non-external messages
+            // NOTE: This should not happen for external messages since validateExternalMessage sets req.user
+            if (this.options.conversationId) {
+                try {
+                    logger.info('[ExternalClient] Attempting to get conversation:', this.options.conversationId);
+                    const conversation = await getConvo(null, this.options.conversationId);
+                    logger.info('[ExternalClient] Conversation found:', conversation ? 'Yes' : 'No');
+                    if (conversation && conversation.user) {
+                        this.user = conversation.user;
+                        logger.warn('[ExternalClient] FALLBACK: Using user from conversation owner (this should not happen for external messages):', this.user);
+                        return;
+                    }
+                } catch (err) {
+                    logger.warn('[ExternalClient] Failed to get user from conversation:', err);
+                }
+            }
+
+            // If still no user, try to recover from JWT token
+            const token = extractJwtToken(this.req);
+            if (token) {
+                try {
+                    const jwt = require('jsonwebtoken');
+                    const payload = jwt.verify(token, process.env.JWT_SECRET);
+                    this.user = payload?.id;
+                    if (this.user) {
+                        logger.info('[ExternalClient] Recovered user from JWT token:', this.user);
+                        return;
+                    }
+                } catch (err) {
+                    logger.warn('[ExternalClient] Failed to recover JWT token:', err);
+                }
+            }
+
+            // Last resort: try to get from API key (only for non-external messages)
+            if (this.apiKey && !this.req.isServiceRequest) {
+                try {
+                    const user = await getUserById(this.apiKey);
+                    if (user) {
+                        this.user = user._id || user.id;
+                        logger.info('[ExternalClient] Using user from API key:', this.user);
+                        return;
+                    }
+                } catch (err) {
+                    logger.warn('[ExternalClient] Failed to get user from API key:', err);
+                }
+            }
+
+            if (!this.user) {
+                logger.error('[ExternalClient] No user found in any source');
+                throw new Error('User not authenticated');
+            }
+
+            logger.info('[ExternalClient] Client initialized successfully');
+            logger.info('[ExternalClient] Initialized with options:', {
+                endpoint: this.endpoint,
+                endpointType: this.endpointType,
+                model: this.model,
+                agent_id: this.options.agent_id,
+                user: this.user,
+                phoneNumber: this.req.phoneNumber
+            });
+        } catch (error) {
+            logger.error('[ExternalClient] Error initializing client:', error);
+            throw error;
+        }
     }
 }
 

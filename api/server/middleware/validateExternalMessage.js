@@ -9,7 +9,7 @@ const { findUser, createUser, updateUser } = require('~/models');
  */
 const validateExternalMessage = async (req, res, next) => {
     try {
-        logger.info('[validateExternalMessage] Validating external message request');
+        logger.debug('[validateExternalMessage] Validating external message request');
 
         // Verify this is an external message request
         if (req.body.role !== 'external') {
@@ -31,7 +31,7 @@ const validateExternalMessage = async (req, res, next) => {
 
         // Basic validation for agent requests (format check only)
         if (req.body.metadata?.endpoint === 'agents') {
-            logger.info('[validateExternalMessage] Agent request detected');
+            logger.debug('[validateExternalMessage] Agent request detected');
 
             if (!req.body.metadata.agent_id) {
                 logger.warn('[validateExternalMessage] agent_id required for agent endpoint');
@@ -44,7 +44,7 @@ const validateExternalMessage = async (req, res, next) => {
                 return res.status(400).json({ error: 'Invalid agent_id format' });
             }
 
-            logger.info('[validateExternalMessage] Agent request format validated, deferring access check to ExternalClient');
+            logger.debug('[validateExternalMessage] Agent request format validated, deferring access check to ExternalClient');
         }
 
         // Extract phone number from various possible locations
@@ -76,22 +76,55 @@ const validateExternalMessage = async (req, res, next) => {
         // If no user found, create new user
         if (!user) {
             logger.info('[validateExternalMessage] Creating new user for phone number:', normalizedPhone);
-            user = await createUser({
-                email: `${normalizedPhone}@sms.librechat.ai`,
-                name: `SMS User ${normalizedPhone}`,
-                username: `sms_${normalizedPhone}`,
-                provider: 'sms',
-                phoneNumber: normalizedPhone,
-                metadata: {
+            try {
+                user = await createUser({
+                    email: `${normalizedPhone}@sms.librechat.ai`,
+                    name: `SMS User ${normalizedPhone}`,
+                    username: `sms_${normalizedPhone}`,
+                    provider: 'sms',
                     phoneNumber: normalizedPhone,
-                    lastSMS: new Date(),
-                    source: 'sms'
+                    emailVerified: true,
+                    metadata: {
+                        phoneNumber: normalizedPhone,
+                        lastSMS: new Date(),
+                        source: 'sms'
+                    }
+                }, true, true);
+
+                logger.info('[validateExternalMessage] Successfully created new user:', {
+                    userId: user._id.toString(),
+                    phoneNumber: normalizedPhone
+                });
+            } catch (error) {
+                logger.error('[validateExternalMessage] Error creating user:', error);
+                // If user creation failed due to duplicate email, try to find the user again
+                if (error.code === 11000) {
+                    user = await findUser({
+                        $or: [
+                            { phoneNumber: normalizedPhone },
+                            { 'metadata.phoneNumber': normalizedPhone }
+                        ]
+                    });
+                    if (user) {
+                        logger.info('[validateExternalMessage] Found existing user after creation error:', {
+                            userId: user._id.toString(),
+                            phoneNumber: normalizedPhone
+                        });
+                    } else {
+                        throw error;
+                    }
+                } else {
+                    throw error;
                 }
-            }, true, true);
+            }
         } else {
             // Update last SMS timestamp
             await updateUser(user._id, {
                 'metadata.lastSMS': new Date()
+            });
+            logger.info('[validateExternalMessage] Updated existing user:', {
+                userId: user._id.toString(),
+                phoneNumber: normalizedPhone
             });
         }
 
@@ -102,7 +135,7 @@ const validateExternalMessage = async (req, res, next) => {
         // Add phone number to request for conversation handling
         req.phoneNumber = normalizedPhone;
 
-        logger.info('[validateExternalMessage] External message validation complete');
+        logger.debug('[validateExternalMessage] External message validation complete');
         next();
     } catch (error) {
         logger.error('[validateExternalMessage] Error processing request:', error);

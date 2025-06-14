@@ -17,6 +17,13 @@ export interface IUser extends Document {
   githubId?: string;
   discordId?: string;
   appleId?: string;
+  phoneNumber?: string;
+  metadata?: {
+    phoneNumber?: string;
+    lastSMS?: Date;
+    source?: string;
+    [key: string]: any;
+  };
   plugins?: unknown[];
   twoFactorEnabled?: boolean;
   totpSecret?: string;
@@ -132,6 +139,16 @@ const User = new Schema<IUser>(
       unique: true,
       sparse: true,
     },
+    phoneNumber: {
+      type: String,
+      unique: true,
+      sparse: true,
+      index: true,
+    },
+    metadata: {
+      type: Schema.Types.Mixed,
+      default: {},
+    },
     plugins: {
       type: Array,
     },
@@ -159,5 +176,9 @@ const User = new Schema<IUser>(
   },
   { timestamps: true },
 );
+
+// Add indexes for phone number lookups
+User.index({ phoneNumber: 1 });
+User.index({ 'metadata.phoneNumber': 1 });
 
 export default User;
