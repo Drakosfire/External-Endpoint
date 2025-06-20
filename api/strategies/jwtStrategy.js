@@ -1,7 +1,7 @@
+const { logger } = require('@librechat/data-schemas');
 const { SystemRoles } = require('librechat-data-provider');
 const { Strategy: JwtStrategy, ExtractJwt } = require('passport-jwt');
 const { getUserById, updateUser } = require('~/models');
-const { logger } = require('~/config');
 
 // Custom extractor to get JWT from query param or Authorization header
 const customJwtExtractor = (req) => {

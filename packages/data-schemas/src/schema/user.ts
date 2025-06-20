@@ -1,4 +1,4 @@
-import { Schema, Document } from 'mongoose';
+import { Schema } from 'mongoose';
 import { SystemRoles } from 'librechat-data-provider';
 
 export interface IUser extends Document {
@@ -62,7 +62,7 @@ const BackupCodeSchema = new Schema(
   { _id: false },
 );
 
-const User = new Schema<IUser>(
+const userSchema = new Schema<IUser>(
   {
     name: {
       type: String,
@@ -74,7 +74,7 @@ const User = new Schema<IUser>(
     },
     email: {
       type: String,
-      required: [true, 'can\'t be blank'],
+      required: [true, "can't be blank"],
       lowercase: true,
       unique: true,
       match: [/\S+@\S+\.\S+/, 'is invalid'],
@@ -115,6 +115,11 @@ const User = new Schema<IUser>(
       sparse: true,
     },
     openidId: {
+      type: String,
+      unique: true,
+      sparse: true,
+    },
+    samlId: {
       type: String,
       unique: true,
       sparse: true,
@@ -172,6 +177,15 @@ const User = new Schema<IUser>(
     termsAccepted: {
       type: Boolean,
       default: false,
+    },
+    personalization: {
+      type: {
+        memories: {
+          type: Boolean,
+          default: true,
+        },
+      },
+      default: {},
     },
   },
   { timestamps: true },

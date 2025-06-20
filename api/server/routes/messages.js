@@ -1,4 +1,5 @@
 const express = require('express');
+const { logger } = require('@librechat/data-schemas');
 const { ContentTypes } = require('librechat-data-provider');
 const {
   saveConvo,
@@ -14,8 +15,7 @@ const validateExternalMessage = require('../middleware/validateExternalMessage')
 const { cleanUpPrimaryKeyValue } = require('~/lib/utils/misc');
 const { getConvosQueried } = require('~/models/Conversation');
 const { countTokens } = require('~/server/utils');
-const { Message } = require('~/models/Message');
-const { logger } = require('~/config');
+const { Message } = require('~/db/models');
 const { Conversation } = require('~/models/Conversation');
 const { v4: uuidv4 } = require('uuid');
 const { sendEvent } = require('~/config');
@@ -53,7 +53,11 @@ router.get('/', async (req, res) => {
     const sortOrder = sortDirection === 'asc' ? 1 : -1;
 
     if (conversationId && messageId) {
-      const message = await Message.findOne({ conversationId, messageId, user: user }).lean();
+      const message = await Message.findOne({
+        conversationId,
+        messageId,
+        user: user,
+      }).lean();
       response = { messages: message ? [message] : [], nextCursor: null };
     } else if (conversationId) {
       const filter = { conversationId, user: user };
@@ -404,6 +408,31 @@ router.put('/:conversationId/:messageId', validateMessageReq, async (req, res) =
   } catch (error) {
     logger.error('[Messages] Error updating message:', error);
     res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.put('/:conversationId/:messageId/feedback', validateMessageReq, async (req, res) => {
+  try {
+    const { conversationId, messageId } = req.params;
+    const { feedback } = req.body;
+
+    const updatedMessage = await updateMessage(
+      req,
+      {
+        messageId,
+        feedback: feedback || null,
+      },
+      { context: 'updateFeedback' },
+    );
+
+    res.json({
+      messageId,
+      conversationId,
+      feedback: updatedMessage.feedback,
+    });
+  } catch (error) {
+    logger.error('Error updating message feedback:', error);
+    res.status(500).json({ error: 'Failed to update feedback' });
   }
 });
 

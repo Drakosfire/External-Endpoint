@@ -116,6 +116,25 @@ const messageSchema: Schema<IMessage> = new Schema(
     finish_reason: {
       type: String,
     },
+    feedback: {
+      type: {
+        rating: {
+          type: String,
+          enum: ['thumbsUp', 'thumbsDown'],
+          required: true,
+        },
+        tag: {
+          type: mongoose.Schema.Types.Mixed,
+          required: false,
+        },
+        text: {
+          type: String,
+          required: false,
+        },
+      },
+      default: undefined,
+      required: false,
+    },
     _meiliIndex: {
       type: Boolean,
       required: false,
