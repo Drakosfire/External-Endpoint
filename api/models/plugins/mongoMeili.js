@@ -112,8 +112,7 @@ const createMeiliMongooseModel = function ({ index, attributesToIndex }) {
               (doc.title && doc.title !== mongoMap.get(id).title)
             ) {
               logger.debug(
-                `[syncWithMeili] ${id} had document discrepancy in ${
-                  doc.text ? 'text' : 'title'
+                `[syncWithMeili] ${id} had document discrepancy in ${doc.text ? 'text' : 'title'
                 } field`,
               );
               updateOps.push({
@@ -152,8 +151,7 @@ const createMeiliMongooseModel = function ({ index, attributesToIndex }) {
         if (updateOps.length > 0) {
           await this.collection.bulkWrite(updateOps);
           logger.debug(
-            `[syncWithMeili] Finished indexing ${
-              primaryKey === 'messageId' ? 'messages' : 'conversations'
+            `[syncWithMeili] Finished indexing ${primaryKey === 'messageId' ? 'messages' : 'conversations'
             }`,
           );
         }
@@ -256,14 +254,34 @@ const createMeiliMongooseModel = function ({ index, attributesToIndex }) {
      */
     async addObjectToMeili() {
       const object = this.preprocessObjectForIndex();
+
+      // Debug: Log what we're about to index
+      if (this.metadata) {
+        logger.debug('[addObjectToMeili] Document has metadata, preserving for indexing:', {
+          conversationId: this.conversationId,
+          hasMetadata: !!this.metadata,
+          metadataKeys: this.metadata ? Object.keys(this.metadata) : [],
+          objectHasMetadata: !!object.metadata,
+          objectKeys: Object.keys(object)
+        });
+      }
+
       try {
         await index.addDocuments([object]);
+        // Only update _meiliIndex flag if MeiliSearch operation succeeded
+        await this.collection.updateMany({ _id: this._id }, { $set: { _meiliIndex: true } });
+
+        // Debug: Confirm what was indexed
+        if (this.metadata) {
+          logger.debug('[addObjectToMeili] Successfully indexed document with metadata');
+        }
       } catch (error) {
         // Error handling can be enhanced as needed.
         logger.error('[addObjectToMeili] Error adding document to Meili', error);
+        // DO NOT update _meiliIndex flag when MeiliSearch fails
+        // This prevents document corruption from post-save hooks
+        logger.warn('[addObjectToMeili] Skipping _meiliIndex update due to MeiliSearch failure');
       }
-
-      await this.collection.updateMany({ _id: this._id }, { $set: { _meiliIndex: true } });
     }
 
     /**
@@ -458,7 +476,7 @@ module.exports = function mongoMeili(schema, options) {
       } catch (error) {
         logger.debug(
           '[MeiliMongooseModel.findOneAndUpdate] Convo not found in MeiliSearch and will index ' +
-            doc.conversationId,
+          doc.conversationId,
           error,
         );
       }

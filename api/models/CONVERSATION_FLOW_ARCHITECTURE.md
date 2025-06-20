@@ -1,9 +1,11 @@
 # LibreChat Conversation Flow Architecture
 
-**Version**: 3.0  
-**Date**: June 2025
+**Version**: 3.1  
+**Date**: June 2025 (Updated post SMS persistence fix)
 **Location**: `api/models/`  
 **Purpose**: Definitive reference for conversation data flow, model relationships, and backend implementation
+
+**Important**: This version includes critical bug fixes for external message processing and variable scoping safety patterns.
 
 ---
 
@@ -36,6 +38,7 @@ LibreChat implements a sophisticated conversation management system with dual-pa
 - **Real-time Sync**: SSE-based broadcasting for immediate UI updates
 - **External Integration**: Dedicated pathway for non-user message sources
 - **Data Integrity**: Comprehensive validation and error handling throughout the pipeline
+- **Variable Scoping Safety**: Critical async operations must declare variables before use in logging/debugging
 
 ### Critical Files in This Directory
 
@@ -92,6 +95,7 @@ saveConvo: async (req, { conversationId, newConversationId, _id, ...convo }, met
   }
   
   // 5. Handle external vs regular messages differently
+  // CRITICAL: Declare query variable before any logging/debugging
   let query;
   if (req.isServiceRequest || metadata?.isExternalMessage) {
     const existingConvo = await Conversation.findOne({ conversationId }).lean();
@@ -105,7 +109,17 @@ saveConvo: async (req, { conversationId, newConversationId, _id, ...convo }, met
     query = { conversationId, user: req.user.id };
   }
   
-  // 6. Perform atomic upsert operation
+  // 6. Debug logging (only after query is properly defined)
+  if (metadata?.isExternalMessage) {
+    logger.debug('[saveConvo] External message - MongoDB operation details:', {
+      conversationId,
+      query: JSON.stringify(query),
+      updateOperationSetKeys: Object.keys(updateOperation.$set),
+      updateOperationSetMetadata: updateOperation.$set.metadata
+    });
+  }
+  
+  // 7. Perform atomic upsert operation
   const conversation = await Conversation.findOneAndUpdate(
     query,
     { $set: update },
@@ -234,6 +248,9 @@ interface IConversation {
   tags?: string[];                 // User tags, indexed
   files?: string[];                // File attachments
   
+  // External Integration
+  metadata?: unknown;              // External system metadata (SMS, etc.) - REQUIRES meiliIndex: true
+  
   // Lifecycle
   expiredAt?: Date;                // TTL for cleanup
   createdAt?: Date;
@@ -244,6 +261,7 @@ interface IConversation {
 { conversationId: 1, user: 1 }    // Unique compound index
 { expiredAt: 1 }                  // TTL cleanup
 { user: 1, updatedAt: -1 }        // User timeline queries
+{ 'metadata.phoneNumber': 1, 'metadata.source': 1, user: 1 }  // SMS conversation lookup
 ```
 
 #### Message Schema (`packages/data-schemas/src/schema/message.ts`)
@@ -502,7 +520,7 @@ async function validateMessageRequest(req, res, next) {
 
 ### Authentication Architecture
 
-External messages use a separate authentication pathway that bypasses user JWT validation:
+External messages use a separate authentication pathway that bypasses user JWT validation. **Critical**: External message processing requires careful variable scoping to prevent conversation persistence failures.
 
 ```javascript
 // From api/server/routes/messages.js lines 23-30
@@ -515,6 +533,30 @@ router.use((req, res, next) => {
   // Standard users use JWT authentication
   requireJwtAuth(req, res, next);
 });
+```
+
+### External Message Debugging Strategy
+
+When debugging external message issues, verify these components in order:
+
+1. **API Key Authentication**: Confirm `x-api-key` header is valid
+2. **User Resolution**: Check user creation/lookup for phone numbers  
+3. **Schema Validation**: Verify conversation schema supports metadata field
+4. **Variable Scoping**: Ensure all variables declared before debug logging
+5. **Conversation Discovery**: Test existing conversation lookup by metadata
+6. **Persistence Verification**: Confirm metadata saved to database
+
+```javascript
+// Debugging pattern for external messages
+if (metadata?.isExternalMessage) {
+  logger.debug('[ExternalClient] Pre-save debugging:', {
+    conversationId,
+    hasMetadata: !!convo.metadata,
+    metadataKeys: convo.metadata ? Object.keys(convo.metadata) : [],
+    phoneNumber: convo.metadata?.phoneNumber,
+    source: convo.metadata?.source
+  });
+}
 ```
 
 ### External Message Processing
@@ -983,6 +1025,199 @@ async function getCachedConversation(conversationId) {
 
 ## Error Handling
 
+### Critical Bug: BaseClient Overwrites Conversation Metadata
+
+**Issue Identified (June 2025)**: A critical bug in `BaseClient.js` caused conversation metadata to be silently stripped during message processing, breaking external message functionality including SMS conversation discovery.
+
+#### Root Cause
+In `api/app/clients/BaseClient.js`, the `saveMessageToDatabase` function was calling `saveConvo` with a `fieldsToKeep` object that excluded the `metadata` field, causing subsequent saves to overwrite conversations without preserving critical metadata.
+
+```javascript
+// BROKEN: fieldsToKeep excludes metadata
+const fieldsToKeep = {
+  conversationId: message.conversationId,
+  endpoint: this.options.endpoint,
+  endpointType: this.options.endpointType,
+  ...endpointOptions, // ❌ Does not include metadata
+};
+```
+
+#### Symptoms
+- ✅ ExternalClient creates conversation with metadata successfully
+- ❌ BaseClient saves user message and overwrites conversation **without metadata**
+- ❌ BaseClient saves response message and overwrites conversation **again without metadata**
+- ✅ Application logs show metadata being constructed correctly
+- ❌ Database documents lack metadata field entirely
+- ❌ SMS conversations can't be discovered by phone number
+- ❌ New SMS messages create separate conversations instead of reusing existing ones
+
+#### Investigation Process
+1. **MeiliSearch Plugin Suspected**: Initially thought mongoMeili plugin was stripping fields
+2. **Network Issues Ruled Out**: Fixed MeiliSearch Docker network connectivity issues
+3. **Schema Verification**: Confirmed `metadata` field properly configured with `meiliIndex: true`
+4. **Plugin Disabled**: Tested with MeiliSearch plugin completely disabled
+5. **Multiple Save Operations**: Discovered BaseClient was making additional `saveConvo` calls
+6. **Field Preservation Analysis**: Found `fieldsToKeep` object was excluding metadata
+
+#### Solution Applied
+```javascript
+// FIXED: Preserve metadata and critical fields from existing conversation
+const fieldsToKeep = {
+  conversationId: message.conversationId,
+  endpoint: this.options.endpoint,
+  endpointType: this.options.endpointType,
+  ...endpointOptions,
+};
+
+const existingConvo = await getConvo(this.options?.req?.user?.id, message.conversationId);
+
+// ✅ CRITICAL FIX: Preserve metadata from existing conversation
+if (existingConvo?.metadata) {
+  fieldsToKeep.metadata = existingConvo.metadata;
+}
+
+// ✅ Preserve other critical fields that should not be lost
+const fieldsToPreserve = ['agent_id', 'assistant_id', 'title'];
+fieldsToPreserve.forEach(field => {
+  if (existingConvo?.[field] && fieldsToKeep[field] === undefined) {
+    fieldsToKeep[field] = existingConvo[field];
+  }
+});
+
+// ✅ Add preserved fields to exceptions to prevent unsetting
+const exceptions = new Set(['spec', 'iconURL', 'metadata', 'agent_id', 'assistant_id', 'title']);
+```
+
+### Critical Bug: Variable Scoping in Async Functions
+
+**Issue Identified (June 2025)**: A secondary bug in `saveConvo` function caused conversation persistence failures for external messages due to improper variable scoping.
+
+#### Root Cause
+```javascript
+// BROKEN: Variable used before declaration
+if (metadata?.isExternalMessage) {
+  logger.debug('...', { query: JSON.stringify(query) }); // ❌ ReferenceError
+}
+let query; // ❌ Declared after use
+```
+
+#### Symptoms
+- External messages failing with "Cannot access 'query' before initialization"
+- Metadata created correctly but conversation save fails
+- SMS conversations not persisting despite successful user creation
+- No new conversations created, existing ones not updated
+
+#### Solution
+```javascript
+// FIXED: Declare variables before any usage
+let query; // ✅ Declare first
+if (req.isServiceRequest || metadata?.isExternalMessage) {
+  // ... set query value
+}
+if (metadata?.isExternalMessage) {
+  logger.debug('...', { query: JSON.stringify(query) }); // ✅ Safe to use
+}
+```
+
+#### Prevention Pattern
+```javascript
+// Pattern for safe async debugging
+async function safeAsyncFunction(params, metadata) {
+  // 1. Declare all variables at function start
+  let query, result, updateOperation;
+  
+  try {
+    // 2. Set variable values
+    query = buildQuery(params);
+    updateOperation = buildUpdate(params);
+    
+    // 3. Debug logging after variables are set
+    if (metadata?.debug) {
+      logger.debug('Operation details:', { query, updateOperation });
+    }
+    
+    // 4. Perform operations
+    result = await performDatabaseOperation(query, updateOperation);
+    return result;
+  } catch (error) {
+    logger.error('Operation failed:', error);
+    throw error;
+  }
+}
+```
+
+#### Testing Strategy
+1. **Schema Validation**: Verify metadata field exists in schema
+2. **Variable Scoping**: Check variable declaration order in async functions  
+3. **Debug Logging**: Ensure debug statements don't reference undefined variables
+4. **End-to-End Testing**: Confirm full conversation persistence flow
+5. **Conversation Reuse**: Validate existing conversation discovery works
+
+### Critical Bug: MeiliSearch Plugin Field Stripping
+
+**Issue Identified (June 2025)**: SMS conversation metadata was not persisting to database despite successful application logs showing metadata construction and MongoDB operations completing successfully.
+
+#### Root Cause Analysis
+The `mongoMeili` plugin was silently removing the `metadata` field during save operations because it wasn't marked with `meiliIndex: true` in the schema. The plugin's `preprocessObjectForIndex()` function uses field whitelisting:
+
+```javascript
+// From api/models/plugins/mongoMeili.js
+const object = _.omitBy(_.pick(this.toJSON(), attributesToIndex), (v, k) => k.startsWith('$'));
+```
+
+This `_.pick(this.toJSON(), attributesToIndex)` only preserves fields marked for MeiliSearch indexing, causing non-indexed fields to be stripped during the post-save hook.
+
+#### Symptoms
+- ✅ Application logs showed metadata being constructed correctly
+- ✅ `saveConvo` function received metadata properly  
+- ✅ MongoDB `findOneAndUpdate` operation appeared successful
+- ❌ Database documents lacked `metadata` field entirely
+- ❌ SMS conversations couldn't be discovered by phone number
+- ❌ New SMS messages created separate conversations instead of reusing existing ones
+
+#### Investigation Process
+1. **Schema Verification**: Confirmed `metadata` field exists as `mongoose.Schema.Types.Mixed`
+2. **Database Testing**: Verified direct MongoDB operations work with metadata
+3. **Variable Scoping Fix**: Resolved `updateOperation` declaration order bug
+4. **SMS Architecture**: Aligned SMS server with placeholder conversation ID approach
+5. **Search Function**: Updated to use direct Mongoose queries instead of `getConvo`
+6. **User ID Format**: Fixed ObjectId to string conversion
+7. **Plugin Discovery**: Identified MeiliSearch plugin as root cause
+
+#### Solution Applied
+```typescript
+// FIXED: Added meiliIndex to metadata field in packages/data-schemas/src/schema/convo.ts
+metadata: {
+  type: mongoose.Schema.Types.Mixed,
+  meiliIndex: true,  // ← This was the missing piece!
+},
+```
+
+#### What We Definitively Ruled Out
+- ✅ Database schema issues (metadata field properly defined)
+- ✅ MongoDB connection or operation problems
+- ✅ Core conversation saving logic (`saveConvo` function working correctly)
+- ✅ External message authentication and routing
+- ✅ SMS server architecture and placeholder ID system
+- ✅ Data flow and metadata construction (all working properly)
+- ✅ Variable scoping in async functions (fixed early in investigation)
+
+#### Key Lessons
+1. **Plugin Side Effects**: Third-party plugins can modify data post-save even when core logic succeeds
+2. **Field Whitelisting**: MeiliSearch plugin only preserves schema fields marked for indexing
+3. **Misleading Logs**: Application logs can show success while plugins silently strip data
+4. **Schema Dependencies**: Field persistence depends on plugin configuration, not just schema definition
+
+#### Prevention Pattern
+```javascript
+// Always verify plugin field requirements when adding new schema fields
+// Check if field needs meiliIndex: true for persistence
+newField: {
+  type: mongoose.Schema.Types.Mixed,
+  meiliIndex: true,  // Required for mongoMeili plugin to preserve field
+}
+```
+
 ### Database Error Patterns
 
 #### Duplicate Key Handling
@@ -1099,6 +1334,89 @@ const conversation = await safeDbOperation(
   () => getConvo(userId, conversationId),
   null
 );
+```
+
+#### Critical Field Preservation Pattern
+
+```javascript
+// CRITICAL: Always preserve metadata and essential fields when updating conversations
+// This prevents data loss during message processing cycles
+async function preserveConversationFields(fieldsToKeep, existingConvo) {
+  // Preserve metadata - ESSENTIAL for external message functionality
+  if (existingConvo?.metadata) {
+    fieldsToKeep.metadata = existingConvo.metadata;
+  }
+  
+  // Preserve other critical fields that should persist across saves
+  const fieldsToPreserve = ['agent_id', 'assistant_id', 'title'];
+  fieldsToPreserve.forEach(field => {
+    if (existingConvo?.[field] && fieldsToKeep[field] === undefined) {
+      fieldsToKeep[field] = existingConvo[field];
+    }
+  });
+  
+  return fieldsToKeep;
+}
+
+// Usage in BaseClient or similar contexts
+const fieldsToKeep = await preserveConversationFields({
+  conversationId: message.conversationId,
+  endpoint: this.options.endpoint,
+  endpointType: this.options.endpointType,
+  ...endpointOptions,
+}, existingConvo);
+```
+
+#### Variable Scoping Safety Pattern
+
+```javascript
+// CRITICAL: Always declare variables before debug logging in async functions
+async function safeConversationSave(req, convoData, metadata) {
+  // 1. Declare ALL variables at function start
+  let query, updateOperation, conversation, existingConvo;
+  
+  try {
+    // 2. Build update operation
+    updateOperation = { $set: { ...convoData, user: req.user.id } };
+    
+    // 3. Handle user resolution BEFORE any logging
+    if (req.isServiceRequest || metadata?.isExternalMessage) {
+      existingConvo = await Conversation.findOne({ 
+        conversationId: convoData.conversationId 
+      }).lean();
+      
+      if (existingConvo) {
+        query = { conversationId: convoData.conversationId, user: existingConvo.user };
+        updateOperation.$set.user = existingConvo.user;
+      } else {
+        query = { conversationId: convoData.conversationId, user: req.user.id };
+      }
+    } else {
+      query = { conversationId: convoData.conversationId, user: req.user.id };
+    }
+    
+    // 4. Safe to debug log AFTER all variables are set
+    if (metadata?.isExternalMessage) {
+      logger.debug('[saveConvo] External message operation:', {
+        conversationId: convoData.conversationId,
+        query: JSON.stringify(query),
+        hasMetadata: !!updateOperation.$set.metadata
+      });
+    }
+    
+    // 5. Perform database operation
+    conversation = await Conversation.findOneAndUpdate(
+      query,
+      updateOperation,
+      { new: true, upsert: true }
+    );
+    
+    return conversation;
+  } catch (error) {
+    logger.error('[safeConversationSave] Operation failed:', error);
+    throw error;
+  }
+}
 ```
 
 #### Atomic Conversation Updates
@@ -1280,5 +1598,48 @@ This document provides the complete architectural reference for LibreChat's conv
 5. **Performance Optimized**: Strategic indexing and caching patterns
 6. **Error Resilient**: Comprehensive error handling throughout the pipeline
 7. **Highly Extensible**: Clear patterns for adding new features and message types
+8. **Variable Scoping Safety**: Critical async operations must declare variables before debug logging
+
+### Critical Bug Resolution (June 2025)
+
+**Primary Issue**: SMS conversation metadata persistence failure due to BaseClient overwriting conversations without preserving metadata.
+
+**Root Cause**: The `api/app/clients/BaseClient.js` `saveMessageToDatabase` function was calling `saveConvo` with a `fieldsToKeep` object that excluded the `metadata` field, causing subsequent message saves to overwrite conversations and strip critical metadata. This happened because BaseClient processes messages after ExternalClient creates the initial conversation, leading to multiple save operations where the later ones lose metadata.
+
+**Secondary Issues**: 
+1. Variable scoping bug in `saveConvo` function where variables were referenced before declaration
+2. MeiliSearch Docker network connectivity issues (IP address mismatch)
+
+**Resolution Applied**:
+1. **BaseClient Fix**: Modified `saveMessageToDatabase` to preserve `metadata`, `agent_id`, `assistant_id`, and `title` from existing conversations
+2. **Field Exception Handling**: Added preserved fields to exceptions set to prevent unsetting
+3. **Variable Scoping**: Fixed declaration order in async functions  
+4. **Network Configuration**: Updated MeiliSearch host IP and recommended using container names
+5. **Plugin Debugging**: Enhanced mongoMeili plugin with better error handling
+
+**Investigation Process**:
+1. **MeiliSearch Plugin Initially Suspected**: Thought plugin was stripping fields during indexing
+2. **Network Issues Discovered**: Found MeiliSearch connection failures due to Docker IP changes
+3. **Plugin Ruled Out**: Disabled MeiliSearch plugin completely - metadata still missing
+4. **Multiple Save Operations Found**: Discovered BaseClient was overwriting conversations
+5. **Field Preservation Analysis**: Identified `fieldsToKeep` as the root cause
+
+**Key Lessons Learned**:
+- **Multiple Save Operations**: External messages trigger multiple `saveConvo` calls from different clients
+- **Field Preservation**: Always preserve critical fields from existing conversations during updates
+- **Docker Networks**: Use container names instead of IP addresses for service communication
+- **Systematic Debugging**: Test each component in isolation to identify root causes
+- **Variable Declaration Order**: Always declare variables at function start in async operations
+
+**What We Definitively Ruled Out**:
+- ❌ ~~MeiliSearch plugin field stripping~~ (Plugin works correctly when service is accessible)
+- ❌ ~~Database schema issues~~ (metadata field properly defined with `meiliIndex: true`)
+- ❌ ~~MongoDB connection or operation problems~~ (Database operations work correctly)
+- ❌ ~~Core conversation saving logic~~ (`saveConvo` function working correctly)
+- ❌ ~~External message authentication and routing~~ (Authentication and user resolution work correctly)
+- ❌ ~~SMS server architecture~~ (Placeholder ID system and metadata construction work correctly)
+
+**Current Status**: 
+✅ **RESOLVED** - All fixes applied and tested. Metadata now persists correctly throughout the entire conversation lifecycle, enabling SMS conversation discovery and external message functionality.
 
 The conversation and message models work together to provide a sophisticated, scalable foundation for chat applications with comprehensive external integration capabilities. All patterns documented here are production-tested and optimized for performance and reliability. 

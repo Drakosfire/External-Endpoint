@@ -451,13 +451,24 @@ export class MCPManager {
         );
       }
 
+      // Debug: log userId before making the request
+      this.logger.debug(`${logPrefix}[${toolName}] About to call tool with userId: "${userId}" (type: ${typeof userId})`);
+
+      const requestParams = {
+        name: toolName,
+        arguments: {
+          ...toolArguments,
+        },
+        ...(userId && { userId }), // Add userId to params if available
+      };
+
+      // Debug: log the final params
+      this.logger.debug(`${logPrefix}[${toolName}] Final request params:`, JSON.stringify(requestParams, null, 2));
+
       const result = await connection.client.request(
         {
           method: 'tools/call',
-          params: {
-            name: toolName,
-            arguments: toolArguments,
-          },
+          params: requestParams,
         },
         CallToolResultSchema,
         {

@@ -52,7 +52,12 @@ async function createMCPTool({ req, toolKey, provider: _provider }) {
   const _call = async (toolArguments, config) => {
     try {
       const derivedSignal = config?.signal ? AbortSignal.any([config.signal]) : undefined;
-      const mcpManager = getMCPManager(config?.configurable?.user_id);
+      const finalUserId = config?.configurable?.user_id || req.user?.id;
+
+      // Debug logging for userId resolution
+      logger.debug(`[MCP][${serverName}][${toolName}] User ID resolution: configurable=${config?.configurable?.user_id}, req.user=${req.user?.id}, final=${finalUserId}`);
+
+      const mcpManager = getMCPManager(finalUserId);
       const provider = (config?.metadata?.provider || _provider)?.toLowerCase();
       const result = await mcpManager.callTool({
         serverName,
@@ -60,7 +65,7 @@ async function createMCPTool({ req, toolKey, provider: _provider }) {
         provider,
         toolArguments,
         options: {
-          userId: config?.configurable?.user_id,
+          userId: finalUserId,  // Use the resolved user ID
           signal: derivedSignal,
         },
       });
@@ -74,7 +79,7 @@ async function createMCPTool({ req, toolKey, provider: _provider }) {
       return result;
     } catch (error) {
       logger.error(
-        `[MCP][User: ${config?.configurable?.user_id}][${serverName}] Error calling "${toolName}" MCP tool:`,
+        `[MCP][User: ${finalUserId}][${serverName}] Error calling "${toolName}" MCP tool:`,
         error,
       );
       throw new Error(

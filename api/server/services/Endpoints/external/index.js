@@ -1,8 +1,12 @@
+// External Endpoint Client
+
 const BaseClient = require('~/app/clients/BaseClient');
 const { logger } = require('~/config');
 const { v4: uuidv4 } = require('uuid');
 const { saveMessage, getUserById, saveConvo } = require('~/models');
-const { getConvo } = require('~/models/Conversation');
+const { getConvo, Conversation } = require('~/models/Conversation');
+// Alternative import for Conversation model
+const ConversationModel = require('~/models/schema/convoSchema');
 const { broadcastToUsers, broadcastNewConversation } = require('~/server/sseClients');
 const { SystemRoles } = require('librechat-data-provider');
 const { ObjectId } = require('mongodb');
@@ -29,12 +33,15 @@ const extractJwtToken = (req) => {
 class ExternalClient extends BaseClient {
     constructor(apiKey, options = {}) {
         super(apiKey, options);
-        this.endpoint = 'external';
+
+        // CRITICAL FIX: Don't default endpoint to 'external' - determine it properly
+        // 'external' is the message role, not the processing endpoint
+        this.endpoint = options.endpoint || 'openAI';  // Default to OpenAI instead of 'external'
         this.sender = 'External';
         this.req = options.req;
         this.res = options.res;
-        this.model = options.model;
-        this.endpointType = options.endpointType || 'default';
+        this.model = options.model || 'gpt-4o';
+        this.endpointType = options.endpointType || options.endpoint || 'openAI';
         this.options = {
             ...options,
             agent_id: options.agent_id,
@@ -42,6 +49,17 @@ class ExternalClient extends BaseClient {
             conversationId: options.conversationId
         };
         this.user = null;
+    }
+
+    // Helper function to check if conversation ID is a placeholder
+    isPlaceholderConversationId(conversationId) {
+        const placeholderIds = [
+            'sms-conversation',
+            'external-message',
+            'external-sms',
+            'placeholder'
+        ];
+        return placeholderIds.includes(conversationId);
     }
 
     // Override token usage recording to skip token spending for external messages
@@ -187,7 +205,7 @@ class ExternalClient extends BaseClient {
         // CRITICAL FIX: Set conversation ID from options BEFORE creating/finding conversation
         if (!messageObj.conversationId && this.options.conversationId) {
             messageObj.conversationId = this.options.conversationId;
-            logger.debug('[ExternalClient] Set conversationId from options:', this.options.conversationId);
+            logger.debug(`[ExternalClient] Set conversationId from options: ${this.options.conversationId}`);
         }
 
         // First try to create conversation if needed
@@ -196,7 +214,7 @@ class ExternalClient extends BaseClient {
             logger.debug('[ExternalClient] Attempting to find/create conversation');
             conversation = await this.createConversationIfNeeded(messageObj);
             if (conversation) {
-                logger.debug('[ExternalClient] Created/found conversation:', conversation.conversationId);
+                logger.debug(`[ExternalClient] Created/found conversation: ${conversation.conversationId}`);
                 messageObj.conversationId = conversation.conversationId;
                 // Update client properties from conversation
                 this.endpoint = conversation.endpoint;
@@ -382,11 +400,15 @@ class ExternalClient extends BaseClient {
             if (message.metadata?.additional_instructions) {
                 logger.info('[ExternalClient] Using additional instructions from metadata');
                 endpointOption.additional_instructions = message.metadata.additional_instructions;
-                logger.debug('[ExternalClient] Additional instructions:', message.metadata.additional_instructions);
+                logger.debug('[ExternalClient] Additional instructions:', {
+                    additional_instructions: message.metadata.additional_instructions
+                });
             } else if (message.metadata?.instructions) {
                 logger.info('[ExternalClient] Using dynamic instructions from metadata');
                 endpointOption.additional_instructions = message.metadata.instructions;
-                logger.debug('[ExternalClient] Dynamic instructions:', message.metadata.instructions);
+                logger.debug('[ExternalClient] Dynamic instructions:', {
+                    instructions: message.metadata.instructions
+                });
             }
 
             logger.info('[ExternalClient] Agent loaded successfully');
@@ -458,7 +480,7 @@ class ExternalClient extends BaseClient {
         try {
             const existingConversation = await getConvo(null, conversationId);
             if (existingConversation) {
-                logger.info('[ExternalClient] Found existing conversation:', conversationId);
+                logger.info(`[ExternalClient] Found existing conversation: ${conversationId}`);
                 // Update the user ID to match the existing conversation
                 this.user = existingConversation.user;
                 // Update endpoint and model from existing conversation
@@ -474,15 +496,41 @@ class ExternalClient extends BaseClient {
 
     async findExistingSMSConversation(phoneNumber) {
         try {
-            const existingConversations = await getConvo(this.user, null, {
+            logger.debug('[ExternalClient] Searching for existing SMS conversations:', {
+                userId: this.user.toString(),
+                phoneNumber: phoneNumber,
+                searchCriteria: {
+                    'metadata.phoneNumber': phoneNumber,
+                    'metadata.source': 'sms'
+                }
+            });
+
+            // Search for SMS conversations for this phone number
+            // Use direct Conversation model query since getConvo doesn't support metadata search
+            const existingConversations = await ConversationModel.find({
+                user: this.user,
                 'metadata.phoneNumber': phoneNumber,
                 'metadata.source': 'sms'
+            }).lean();
+
+            logger.debug('[ExternalClient] Existing conversation search results:', {
+                found: !!existingConversations,
+                count: existingConversations ? existingConversations.length : 0,
+                isArray: Array.isArray(existingConversations)
             });
 
             if (existingConversations && existingConversations.length > 0) {
-                // Use the most recent conversation
-                const recentConversation = existingConversations[0];
-                logger.info('[ExternalClient] Found existing SMS conversation:', recentConversation.conversationId);
+                // Sort by most recent and get the latest one
+                const recentConversation = existingConversations.sort((a, b) =>
+                    new Date(b.updatedAt) - new Date(a.updatedAt)
+                )[0];
+
+                logger.info('[ExternalClient] Found existing SMS conversation:', {
+                    conversationId: recentConversation.conversationId,
+                    phoneNumber: phoneNumber,
+                    lastUpdated: recentConversation.updatedAt,
+                    ageInDays: Math.floor((Date.now() - new Date(recentConversation.updatedAt)) / (24 * 60 * 60 * 1000))
+                });
 
                 // Update client properties from existing conversation
                 this.endpoint = recentConversation.endpoint;
@@ -490,6 +538,8 @@ class ExternalClient extends BaseClient {
 
                 return recentConversation;
             }
+
+            logger.info(`[ExternalClient] No active SMS conversation found for phone number: ${phoneNumber}`);
         } catch (error) {
             logger.warn('[ExternalClient] Error finding existing SMS conversation:', error);
         }
@@ -529,9 +579,17 @@ class ExternalClient extends BaseClient {
             source = 'sms';
         }
 
+        // Generate conversation ID - don't use placeholder IDs from routing
+        const isUsingPlaceholder = message.conversationId && this.isPlaceholderConversationId(message.conversationId);
+        const conversationId = (message.conversationId && !isUsingPlaceholder) ? message.conversationId : uuidv4();
+
+        if (isUsingPlaceholder) {
+            logger.info(`[ExternalClient] Generating new conversation ID instead of using placeholder: ${message.conversationId}`);
+        }
+
         // Create new conversation
         const newConversation = {
-            conversationId: message.conversationId || uuidv4(),
+            conversationId: conversationId,
             title: title,
             endpoint: endpoint,
             model: model,
@@ -563,17 +621,37 @@ class ExternalClient extends BaseClient {
                 endpoint: newConversation.endpoint
             });
         } else {
-            logger.info('[ExternalClient] Creating SMS conversation:', newConversation.conversationId);
+            logger.info(`[ExternalClient] Creating SMS conversation: ${newConversation.conversationId}`);
         }
 
         // Create a minimal request object for saveConvo
+        // Ensure user ID is a string (convert ObjectId/Buffer to string)
+        const userId = typeof this.user === 'object' ? this.user.toString() : this.user;
         const req = {
-            user: { id: this.user },
+            user: { id: userId },
             body: { isTemporary: false },
             isServiceRequest: true
         };
 
+        // Debug the request object being passed to saveConvo
+        logger.debug('[ExternalClient] saveConvo request object:', {
+            hasUser: !!req.user,
+            userId: req.user?.id,
+            userIdType: typeof req.user?.id,
+            isServiceRequest: req.isServiceRequest,
+            isTemporary: req.body?.isTemporary
+        });
+
         try {
+            logger.debug('[ExternalClient] About to save conversation with data:', {
+                conversationId: newConversation.conversationId,
+                hasMetadata: !!newConversation.metadata,
+                metadataKeys: newConversation.metadata ? Object.keys(newConversation.metadata) : [],
+                metadataPhoneNumber: newConversation.metadata?.phoneNumber,
+                metadataSource: newConversation.metadata?.source
+            });
+
+            logger.debug('[ExternalClient] Calling saveConvo with metadata context');
             const conversation = await saveConvo(
                 req,
                 newConversation,
@@ -582,6 +660,13 @@ class ExternalClient extends BaseClient {
                     isExternalMessage: true
                 }
             );
+
+            logger.debug('[ExternalClient] saveConvo returned:', {
+                hasConversation: !!conversation,
+                conversationId: conversation?.conversationId,
+                hasMetadata: !!conversation?.metadata,
+                metadataKeys: conversation?.metadata ? Object.keys(conversation.metadata) : []
+            });
 
             if (!conversation) {
                 throw new Error('Failed to create conversation');
@@ -593,6 +678,20 @@ class ExternalClient extends BaseClient {
                 agent_id: conversation.agent_id
             });
 
+            // Verify metadata was saved properly
+            const savedConvo = await getConvo(null, conversation.conversationId);
+            if (savedConvo) {
+                logger.info('[ExternalClient] Verified saved conversation metadata:', {
+                    conversationId: savedConvo.conversationId,
+                    hasMetadata: !!savedConvo.metadata,
+                    phoneNumber: savedConvo.metadata?.phoneNumber,
+                    source: savedConvo.metadata?.source,
+                    metadataKeys: savedConvo.metadata ? Object.keys(savedConvo.metadata) : []
+                });
+            } else {
+                logger.error('[ExternalClient] CRITICAL: Could not retrieve saved conversation for verification');
+            }
+
             // Broadcast the new conversation
             const userIdString = conversation.user.toString();
             broadcastNewConversation(userIdString, conversation);
@@ -603,7 +702,7 @@ class ExternalClient extends BaseClient {
                 // If we get a duplicate key error, it means the conversation was created in parallel
                 const existingConversation = await getConvo(null, newConversation.conversationId);
                 if (existingConversation) {
-                    logger.info('[ExternalClient] Retrieved existing conversation after duplicate key error:', existingConversation.conversationId);
+                    logger.info(`[ExternalClient] Retrieved existing conversation after duplicate key error: ${existingConversation.conversationId}`);
                     this.user = existingConversation.user;
                     this.endpoint = existingConversation.endpoint;
                     this.model = existingConversation.model;
@@ -615,13 +714,18 @@ class ExternalClient extends BaseClient {
     }
 
     async createConversationIfNeeded(message) {
-        // If we have a conversationId in the message, try to get the conversation
-        if (message.conversationId) {
+        // Check if we're using a placeholder conversation ID (for SMS routing)
+        const isUsingPlaceholder = message.conversationId && this.isPlaceholderConversationId(message.conversationId);
+
+        // If we have a conversationId and it's NOT a placeholder, try to get the conversation
+        if (message.conversationId && !isUsingPlaceholder) {
             const existingConversation = await this.findExistingConversation(message.conversationId);
             if (existingConversation) {
                 return existingConversation;
             }
-            logger.info('[ExternalClient] No conversation found with ID, creating new one:', message.conversationId);
+            logger.info(`[ExternalClient] No conversation found with ID, will create new one: ${message.conversationId}`);
+        } else if (isUsingPlaceholder) {
+            logger.info(`[ExternalClient] Ignoring placeholder conversation ID: ${message.conversationId}, using phone number-based discovery`);
         }
 
         // Check if this is a scheduled message

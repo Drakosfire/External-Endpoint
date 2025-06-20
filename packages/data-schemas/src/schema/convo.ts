@@ -48,6 +48,7 @@ export interface IConversation extends Document {
   reasoning_effort?: string;
   // Additional fields
   files?: string[];
+  metadata?: unknown;
   expiredAt?: Date;
   createdAt?: Date;
   updatedAt?: Date;
@@ -87,6 +88,10 @@ const convoSchema: Schema<IConversation> = new Schema(
     files: {
       type: [String],
     },
+    metadata: {
+      type: mongoose.Schema.Types.Mixed,
+      meiliIndex: true,
+    },
     expiredAt: {
       type: Date,
     },
@@ -97,5 +102,7 @@ const convoSchema: Schema<IConversation> = new Schema(
 convoSchema.index({ expiredAt: 1 }, { expireAfterSeconds: 0 });
 convoSchema.index({ createdAt: 1, updatedAt: 1 });
 convoSchema.index({ conversationId: 1, user: 1 }, { unique: true });
+// Index for SMS conversation lookup
+convoSchema.index({ 'metadata.phoneNumber': 1, 'metadata.source': 1, user: 1 });
 
 export default convoSchema;

@@ -895,8 +895,21 @@ class BaseClient {
         ? null
         : await getConvo(this.options?.req?.user?.id, message.conversationId);
 
+    // CRITICAL FIX: Preserve metadata and other important fields from existing conversation
+    if (existingConvo?.metadata) {
+      fieldsToKeep.metadata = existingConvo.metadata;
+    }
+
+    // Preserve other critical fields that should not be lost
+    const fieldsToPreserve = ['agent_id', 'assistant_id', 'title'];
+    fieldsToPreserve.forEach(field => {
+      if (existingConvo?.[field] && fieldsToKeep[field] === undefined) {
+        fieldsToKeep[field] = existingConvo[field];
+      }
+    });
+
     const unsetFields = {};
-    const exceptions = new Set(['spec', 'iconURL']);
+    const exceptions = new Set(['spec', 'iconURL', 'metadata', 'agent_id', 'assistant_id', 'title']);
     if (existingConvo != null) {
       this.fetchedConvo = true;
       for (const key in existingConvo) {
@@ -907,7 +920,8 @@ class BaseClient {
           continue;
         }
 
-        if (endpointOptions?.[key] === undefined) {
+        // CRITICAL FIX: Don't unset fields that are already being set in fieldsToKeep
+        if (endpointOptions?.[key] === undefined && fieldsToKeep[key] === undefined) {
           unsetFields[key] = 1;
         }
       }

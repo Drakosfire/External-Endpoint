@@ -21,9 +21,11 @@ const initializeClient = async ({ req, res, endpointOption }) => {
         // Extract conversationId from request params if available
         const conversationId = req.params?.conversationId || req.body?.conversationId;
 
-        // Determine endpoint based on agent request
-        const endpoint = isAgentRequest ? 'agents' : 'external';
-        const endpointType = isAgentRequest ? 'agents' : 'external';
+        // Determine endpoint based on agent request or metadata
+        // CRITICAL FIX: Don't default to 'external' - use proper LLM endpoint
+        const requestedEndpoint = req.body.metadata?.endpoint;
+        const endpoint = isAgentRequest ? 'agents' : (requestedEndpoint || 'openAI');
+        const endpointType = isAgentRequest ? 'agents' : (requestedEndpoint || 'openAI');
 
         clientOptions = {
             req,

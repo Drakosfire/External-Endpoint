@@ -259,7 +259,9 @@ router.post('/:conversationId', validateMessageReq, async (req, res) => {
     logger.info('[Messages] Processing message:', {
       conversationId,
       role: message.role,
-      isExternal: message.role === 'external'
+      isExternal: message.role === 'external',
+      endpoint: message.metadata?.endpoint,
+      agent_id: message.metadata?.agent_id,
     });
 
     if (message.role === 'external') {
@@ -276,8 +278,13 @@ router.post('/:conversationId', validateMessageReq, async (req, res) => {
         message.metadata.phoneNumber = message.from;
       }
 
+      // CRITICAL FIX: Determine proper endpoint instead of hardcoding 'external'
+      // Check if this is an agent request
+      const isAgentRequest = message.metadata?.endpoint === 'agents' && message.metadata?.agent_id;
+      const targetEndpoint = isAgentRequest ? 'agents' : (message.metadata?.endpoint || 'openAI');
+
       const endpointOption = {
-        endpoint: 'external',
+        endpoint: targetEndpoint,
         modelOptions: {
           model: message.metadata?.model || 'gpt-4o'
         },
