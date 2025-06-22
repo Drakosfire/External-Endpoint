@@ -25,7 +25,9 @@ const searchConversation = async (conversationId) => {
  */
 const getConvo = async (user, conversationId) => {
   try {
-    return await Conversation.findOne({ user, conversationId }).lean();
+    // For external messages (user is null), only search by conversationId
+    const query = user ? { user, conversationId } : { conversationId };
+    return await Conversation.findOne(query).lean();
   } catch (error) {
     logger.error('[getConvo] Error getting single conversation', error);
     return { message: 'Error getting single conversation' };
@@ -86,7 +88,7 @@ module.exports = {
    * @param {Object} metadata - Additional metadata to log for operation.
    * @returns {Promise<TConversation>} The conversation object.
    */
-  saveConvo: async (req, { conversationId, newConversationId, ...convo }, metadata) => {
+  saveConvo: async (req, { conversationId, newConversationId, _id, ...convo }, metadata) => {
     try {
       if (metadata?.context) {
         logger.debug(`[saveConvo] ${metadata.context}`);
@@ -94,6 +96,19 @@ module.exports = {
 
       const messages = await getMessages({ conversationId }, '_id');
       const update = { ...convo, messages, user: req.user.id };
+
+      // Debug logging for metadata handling
+      if (metadata?.isExternalMessage) {
+        logger.debug('[saveConvo] External message - debugging metadata:', {
+          conversationId,
+          convoHasMetadata: !!convo.metadata,
+          convoMetadataKeys: convo.metadata ? Object.keys(convo.metadata) : [],
+          updateHasMetadata: !!update.metadata,
+          updateMetadataKeys: update.metadata ? Object.keys(update.metadata) : [],
+          convoMetadataPhoneNumber: convo.metadata?.phoneNumber,
+          updateMetadataPhoneNumber: update.metadata?.phoneNumber
+        });
+      }
 
       if (newConversationId) {
         update.conversationId = newConversationId;
@@ -112,21 +127,77 @@ module.exports = {
         update.expiredAt = null;
       }
 
+      // For external messages, we need to handle conversation lookup differently
+      let query;
+      if (req.isServiceRequest || metadata?.isExternalMessage) {
+        // For external messages, first check if conversation exists
+        const existingConvo = await Conversation.findOne({ conversationId }).lean();
+        if (existingConvo) {
+          // Use the existing conversation's user ID for the update
+          query = { conversationId, user: existingConvo.user };
+          update.user = existingConvo.user; // Ensure we don't change the owner
+        } else {
+          // New conversation - use the provided user ID
+          query = { conversationId, user: req.user.id };
+        }
+      } else {
+        // Regular user request - use standard query
+        query = { conversationId, user: req.user.id };
+      }
+
       /** @type {{ $set: Partial<TConversation>; $unset?: Record<keyof TConversation, number> }} */
       const updateOperation = { $set: update };
       if (metadata && metadata.unsetFields && Object.keys(metadata.unsetFields).length > 0) {
         updateOperation.$unset = metadata.unsetFields;
       }
 
+      // Debug logging for external messages - show exact MongoDB operation
+      if (metadata?.isExternalMessage) {
+        logger.debug('[saveConvo] External message - MongoDB operation details:', {
+          conversationId,
+          query: JSON.stringify(query),
+          updateOperationSetKeys: Object.keys(updateOperation.$set),
+          updateOperationSetMetadata: updateOperation.$set.metadata,
+          updateOperationSetMetadataKeys: updateOperation.$set.metadata ? Object.keys(updateOperation.$set.metadata) : [],
+          fullUpdateOperation: JSON.stringify(updateOperation, null, 2)
+        });
+      }
+
       /** Note: the resulting Model object is necessary for Meilisearch operations */
+      if (metadata?.isExternalMessage) {
+        logger.debug('[saveConvo] About to execute MongoDB findOneAndUpdate');
+      }
+
       const conversation = await Conversation.findOneAndUpdate(
-        { conversationId, user: req.user.id },
+        query,
         updateOperation,
         {
           new: true,
           upsert: true,
         },
       );
+
+      if (metadata?.isExternalMessage) {
+        logger.debug('[saveConvo] MongoDB operation completed successfully');
+      }
+
+      // Debug logging for external messages
+      if (metadata?.isExternalMessage) {
+        // Check what fields the schema actually supports
+        const schemaFields = Object.keys(Conversation.schema.paths);
+        const hasMetadataInSchema = schemaFields.includes('metadata');
+
+        logger.debug('[saveConvo] External message - conversation saved:', {
+          conversationId: conversation.conversationId,
+          hasMetadata: !!conversation.metadata,
+          metadataKeys: conversation.metadata ? Object.keys(conversation.metadata) : [],
+          metadataPhoneNumber: conversation.metadata?.phoneNumber,
+          metadataSource: conversation.metadata?.source,
+          schemaHasMetadata: hasMetadataInSchema,
+          schemaFieldCount: schemaFields.length,
+          sampleSchemaFields: schemaFields.slice(0, 10)
+        });
+      }
 
       return conversation.toObject();
     } catch (error) {
