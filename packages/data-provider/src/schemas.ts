@@ -540,8 +540,8 @@ export type TAttachmentMetadata = {
 export type TAttachment =
   | (TFile & TAttachmentMetadata)
   | (Pick<TFile, 'filename' | 'filepath' | 'conversationId'> & {
-      expiresAt: number;
-    } & TAttachmentMetadata);
+    expiresAt: number;
+  } & TAttachmentMetadata);
 
 export type TMessage = z.input<typeof tMessageSchema> & {
   children?: TMessage[];
@@ -647,6 +647,8 @@ export const tConversationSchema = z.object({
   iconURL: z.string().nullable().optional(),
   /* temporary chat */
   expiredAt: z.string().nullable().optional(),
+  /* external services */
+  metadata: z.record(z.unknown()).optional(),
   /** @deprecated */
   resendImages: z.boolean().optional(),
   /** @deprecated */

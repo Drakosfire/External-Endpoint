@@ -1,6 +1,58 @@
 import { Schema } from 'mongoose';
 import { conversationPreset } from './defaults';
-import { IConversation } from '~/types';
+
+// @ts-ignore
+export interface IConversation extends Document {
+  conversationId: string;
+  title?: string;
+  user?: string;
+  messages?: Types.ObjectId[];
+  agentOptions?: unknown;
+  // Fields provided by conversationPreset (adjust types as needed)
+  endpoint?: string;
+  endpointType?: string;
+  model?: string;
+  region?: string;
+  chatGptLabel?: string;
+  examples?: unknown[];
+  modelLabel?: string;
+  promptPrefix?: string;
+  temperature?: number;
+  top_p?: number;
+  topP?: number;
+  topK?: number;
+  maxOutputTokens?: number;
+  maxTokens?: number;
+  presence_penalty?: number;
+  frequency_penalty?: number;
+  file_ids?: string[];
+  resendImages?: boolean;
+  promptCache?: boolean;
+  thinking?: boolean;
+  thinkingBudget?: number;
+  system?: string;
+  resendFiles?: boolean;
+  imageDetail?: string;
+  agent_id?: string;
+  assistant_id?: string;
+  instructions?: string;
+  stop?: string[];
+  isArchived?: boolean;
+  iconURL?: string;
+  greeting?: string;
+  spec?: string;
+  tags?: string[];
+  tools?: string[];
+  maxContextTokens?: number;
+  max_tokens?: number;
+  reasoning_effort?: string;
+  // Additional fields
+  files?: string[];
+  metadata?: unknown;
+  expiredAt?: Date;
+  createdAt?: Date;
+  updatedAt?: Date;
+}
 
 const convoSchema: Schema<IConversation> = new Schema(
   {
@@ -36,6 +88,10 @@ const convoSchema: Schema<IConversation> = new Schema(
     files: {
       type: [String],
     },
+    metadata: {
+      type: mongoose.Schema.Types.Mixed,
+      meiliIndex: true,
+    },
     expiredAt: {
       type: Date,
     },
@@ -46,5 +102,7 @@ const convoSchema: Schema<IConversation> = new Schema(
 convoSchema.index({ expiredAt: 1 }, { expireAfterSeconds: 0 });
 convoSchema.index({ createdAt: 1, updatedAt: 1 });
 convoSchema.index({ conversationId: 1, user: 1 }, { unique: true });
+// Index for SMS conversation lookup
+convoSchema.index({ 'metadata.phoneNumber': 1, 'metadata.source': 1, user: 1 });
 
 export default convoSchema;
