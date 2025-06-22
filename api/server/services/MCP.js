@@ -316,6 +316,8 @@ function createToolInstance({ res, toolName, serverName, toolDefinition, provide
   /** @type {(toolArguments: Object | string, config?: GraphRunnableConfig) => Promise<unknown>} */
   const _call = async (toolArguments, config) => {
     const userId = config?.configurable?.user?.id || config?.configurable?.user_id;
+    const finalUserId = config?.configurable?.user_id || req.user?.id;
+
     /** @type {ReturnType<typeof createAbortHandler>} */
     let abortHandler = null;
     /** @type {AbortSignal} */
@@ -360,6 +362,7 @@ function createToolInstance({ res, toolName, serverName, toolDefinition, provide
         provider,
         toolArguments,
         options: {
+          userId: finalUserId,  // Use the resolved user ID
           signal: derivedSignal,
         },
         user: config?.configurable?.user,
