@@ -1,6 +1,45 @@
 import { Schema } from 'mongoose';
 import { SystemRoles } from 'librechat-data-provider';
-import { IUser } from '~/types';
+
+export interface IUser extends Document {
+  name?: string;
+  username?: string;
+  email: string;
+  emailVerified: boolean;
+  password?: string;
+  avatar?: string;
+  provider: string;
+  role?: string;
+  googleId?: string;
+  facebookId?: string;
+  openidId?: string;
+  ldapId?: string;
+  githubId?: string;
+  discordId?: string;
+  appleId?: string;
+  phoneNumber?: string;
+  metadata?: {
+    phoneNumber?: string;
+    lastSMS?: Date;
+    source?: string;
+    [key: string]: any;
+  };
+  plugins?: unknown[];
+  twoFactorEnabled?: boolean;
+  totpSecret?: string;
+  backupCodes?: Array<{
+    codeHash: string;
+    used: boolean;
+    usedAt?: Date | null;
+  }>;
+  refreshToken?: Array<{
+    refreshToken: string;
+  }>;
+  expiresAt?: Date;
+  termsAccepted?: boolean;
+  createdAt?: Date;
+  updatedAt?: Date;
+}
 
 // Session sub-schema
 const SessionSchema = new Schema(
@@ -105,6 +144,16 @@ const userSchema = new Schema<IUser>(
       unique: true,
       sparse: true,
     },
+    phoneNumber: {
+      type: String,
+      unique: true,
+      sparse: true,
+      index: true,
+    },
+    metadata: {
+      type: Schema.Types.Mixed,
+      default: {},
+    },
     plugins: {
       type: Array,
     },
@@ -142,4 +191,8 @@ const userSchema = new Schema<IUser>(
   { timestamps: true },
 );
 
-export default userSchema;
+// Add indexes for phone number lookups
+User.index({ phoneNumber: 1 });
+User.index({ 'metadata.phoneNumber': 1 });
+
+export default User;
