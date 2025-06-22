@@ -66,19 +66,88 @@ if (endpointOptions?.[key] === undefined && fieldsToKeep[key] === undefined) {
 - ✅ Ensures conversation metadata (including phone numbers) persists correctly
 - ✅ Maintains data integrity across SMS conversation saves
 
-### Current System Health Issues Identified
+### MCP-MongoDB Integration Debugging - ✅ CRITICAL LESSONS LEARNED
 
-**🔍 MCP Storage Investigation Needed**:
-- User reports no data visible in `mcp_storage` collections
-- MCP server storage integration may not be functioning as expected
-- Need more robust testing to verify MCP-MongoDB integration
-- Logging insufficient to diagnose MCP storage issues
+**🚨 MAJOR DISCOVERY**: Resolved 30-second timeout issues in MCP server MongoDB connectivity
 
-**📝 Immediate Next Steps**:
-1. **Enhanced MCP Storage Testing**: Create comprehensive test suite for MCP-MongoDB integration
-2. **Robust Logging Implementation**: Add detailed logging for MCP server storage operations
-3. **Storage Verification Tools**: Build tools to inspect and verify MCP data storage
-4. **Integration Debugging**: Investigate why MCP storage isn't showing expected data
+**Root Causes Identified and Fixed**:
+
+1. **❌ Wrong MongoDB Connection String for MCP Servers**:
+   - **PROBLEM**: Used `mongodb://mongodb:27017` (Docker container hostname)
+   - **SOLUTION**: MCP servers run on HOST machine, need `mongodb://localhost:27017`
+   - **CRITICAL INSIGHT**: MCP servers are NOT containerized - they run as host processes
+
+2. **❌ Missing Environment Variable Loading**:
+   - **PROBLEM**: MCP servers weren't loading `.env` files (missing `dotenv.config()`)
+   - **SOLUTION**: Added `import dotenv from 'dotenv'; dotenv.config();` to MCP server startup
+   - **DEBUGGING**: Environment variables showed as empty object `{}` without dotenv
+
+3. **❌ LibreChat Config Overrides .env Files**:
+   - **PROBLEM**: `librechat.yaml` `env` section takes precedence over `.env` files
+   - **SOLUTION**: Set MongoDB config directly in `librechat.yaml` for MCP servers
+   - **LESSON**: Never rely solely on `.env` files for LibreChat MCP configuration
+
+4. **❌ Variable Scope Issues in LibreChat MCP Service**:
+   - **PROBLEM**: `finalUserId` referenced in catch block but defined in try block
+   - **SOLUTION**: Moved variable declaration outside try/catch in `MCP.js`
+   - **FILE**: `/media/drakosfire/Projects/LibreChat/api/server/services/MCP.js` line 82
+
+5. **❌ Inadequate Logging for Debugging**:
+   - **PROBLEM**: Original logging function didn't display data objects
+   - **SOLUTION**: Enhanced logging to actually output JSON data with `JSON.stringify(data, null, 2)`
+   - **CRITICAL**: Logging revealed environment variables weren't loading
+
+**✅ WORKING CONFIGURATION**:
+```yaml
+# librechat.yaml - CORRECT MCP MongoDB Configuration
+mcpServers:
+  remember:
+    type: stdio
+    command: node
+    args:
+      - "../Sizzek/mcp-servers/memory/dist/index.js"
+    
+```
+
+6. **❌ Environment Variable Loading Override by LibreChat**:
+   - **PROBLEM**: LibreChat spawns MCP servers with its own environment, overriding `.env` files
+   - **SYMPTOMS**: `dotenv.config()` loads empty `{}` because LibreChat env takes precedence
+   - **DISCOVERY**: Twilio MCP server works because it uses explicit path loading
+   - **SOLUTION**: Use explicit .env path resolution instead of default dotenv loading
+
+**🎯 CRITICAL FIX - MCP Environment Variable Loading**:
+```typescript
+// ❌ WRONG - Gets overridden by LibreChat
+import dotenv from 'dotenv';
+dotenv.config();
+
+// ✅ CORRECT - Explicit path loading works
+import dotenv from 'dotenv';
+import path from 'path';
+const envPath = path.resolve(__dirname, '..', '.env');
+dotenv.config({ path: envPath });
+console.log(`[MCP] Loading .env from: ${envPath}`);
+```
+
+**Why This Works**:
+- LibreChat spawns MCP servers with its own environment variables
+- Default `dotenv.config()` gets overridden by LibreChat's process environment
+- Explicit path loading with `path.resolve()` forces reading the actual .env file
+- This matches the working pattern used in Twilio MCP server
+
+**🚨 CRITICAL ARCHITECTURAL INSIGHTS**:
+- **MCP Servers are HOST processes**: They don't run in Docker containers
+- **MongoDB access**: Host-based MCP servers connect to containerized MongoDB via `localhost:27017`
+- **Configuration precedence**: `librechat.yaml` env > `.env` files > environment variables
+- **Debugging essential**: Enhanced logging is mandatory for MCP troubleshooting
+
+### Current System Health Status
+
+**✅ MCP Storage Integration - RESOLVED**:
+- MCP server now connects to MongoDB successfully
+- Environment variable loading working correctly
+- Timeout issues resolved (was 30 seconds, now instant response)
+- Storage operations functioning as expected
 
 ---
 
@@ -1000,40 +1069,38 @@ mcpServers:
 Never use `endpoint: 'external'` as a processing endpoint - it causes infinite loops! 
 Use 'openAI', 'agents', or other proper LLM endpoints instead.
 
-### Phase 2: MCP Server Storage Enhancement (Week 2) - ⚠️ REQUIRES INVESTIGATION
+### Phase 2: MCP Server Storage Enhancement - ✅ CRITICAL DEBUGGING COMPLETED
 
-#### 2.1 Create Storage Abstraction Layer - **PRIORITY: HIGH**
-- [ ] **URGENT**: Investigate current MCP storage status (no data in mcp_storage collections)
-- [ ] **CRITICAL**: Add comprehensive logging to MCP server operations
-- [ ] **TESTING**: Create robust test suite for MCP-MongoDB integration verification
-- [ ] Implement StorageInterface and UserStorageInterface
-- [ ] Create JsonUserStorage with user isolation
-- [ ] Implement MongodbUserStorage with MongoDB integration
-- [ ] Build StorageFactory for dynamic storage selection
+#### 2.1 MCP-MongoDB Integration Debugging - ✅ COMPLETED
+- [x] **RESOLVED**: MCP server timeout issues (30-second hangs eliminated)
+- [x] **FIXED**: MongoDB connection string issues (host vs container networking)
+- [x] **IMPLEMENTED**: Environment variable loading with dotenv
+- [x] **ENHANCED**: Comprehensive logging for MCP server operations
+- [x] **CORRECTED**: LibreChat MCP service variable scope issues
+- [x] **DOCUMENTED**: Critical architectural insights for MCP deployment
 
-#### 2.2 Enhance Memory MCP Server - **NEEDS DEBUGGING**
-- [ ] **INVESTIGATION**: Debug why MCP memory server isn't persisting to MongoDB
-- [ ] **LOGGING**: Add detailed operation logging for storage debugging
-- [ ] **VERIFICATION**: Create tools to verify MCP data persistence
-- [ ] Integrate new storage layer
-- [ ] Add user-based storage toggle
-- [ ] Implement backward compatibility
-- [ ] Add user context extraction
+#### 2.2 Memory MCP Server Enhancement - ✅ FOUNDATION COMPLETE
+- [x] **FIXED**: MongoDB connectivity and timeout resolution
+- [x] **ADDED**: Enhanced debugging and logging capabilities
+- [x] **CONFIGURED**: Proper environment variable management
+- [x] **RESOLVED**: Storage operation hanging issues
+- [ ] **TODO**: Implement full PaginatedGraphStorage integration
+- [ ] **TODO**: Add user-based storage isolation
+- [ ] **TODO**: Complete storage abstraction layer
 
-#### 2.3 Enhance Todoodles MCP Server - **NEEDS DEBUGGING**
-- [ ] **INVESTIGATION**: Debug todoodles MCP server storage integration
-- [ ] **TESTING**: Create comprehensive test suite for todoodles storage
-- [ ] Apply same storage enhancements
-- [ ] Add user-based task isolation
-- [ ] Implement MongoDB task storage
-- [ ] Add user context support
+#### 2.3 Critical Lessons Learned - ✅ DOCUMENTED
+- [x] **ARCHITECTURAL**: MCP servers run on host, not in containers
+- [x] **NETWORKING**: Use `localhost:27017` not `mongodb:27017` for MCP servers
+- [x] **CONFIGURATION**: LibreChat yaml config overrides .env files
+- [x] **DEBUGGING**: Enhanced logging essential for troubleshooting
+- [x] **ENVIRONMENT**: dotenv.config() required for .env file loading
 
-#### 2.4 NEW: Debugging and Verification Phase - **IMMEDIATE PRIORITY**
-- [ ] **MongoDB Collection Inspection**: Verify MCP collections exist and contain data
-- [ ] **MCP Server Health Check**: Create diagnostic tools for MCP server status
-- [ ] **Storage Operation Tracing**: Implement detailed logging for all storage operations
-- [ ] **Integration Testing**: Create end-to-end tests for MCP storage operations
-- [ ] **Environment Validation**: Verify MCP server configurations and connections
+#### 2.4 Next Phase Priorities - **ENHANCED IMPLEMENTATION**
+- [ ] **Complete Storage Layer**: Implement full user-based storage abstraction
+- [ ] **Todoodles Integration**: Apply same fixes to todoodles MCP server
+- [ ] **Production Configuration**: Optimize for production deployment
+- [ ] **Comprehensive Testing**: End-to-end testing with user isolation
+- [ ] **Performance Optimization**: MongoDB indexing and query optimization
 
 ### Phase 3: MongoDB Integration & Testing (Week 3)
 
@@ -1252,6 +1319,76 @@ describe('MCP Storage Toggling', () => {
   });
 });
 ```
+
+---
+
+## Critical MCP-MongoDB Integration Lessons
+
+### Essential Debugging Insights
+
+**🔧 MCP Server Architecture**:
+- MCP servers run as **host processes**, not Docker containers
+- They connect to containerized MongoDB via `localhost:27017`
+- Configuration must account for host-to-container networking
+
+**⚙️ Environment Variable Hierarchy**:
+1. `librechat.yaml` env section (highest priority)
+2. System environment variables
+3. `.env` files (lowest priority, requires dotenv.config())
+
+**🐛 Common Debugging Pitfalls**:
+- **Connection String Mismatch**: Using `mongodb://mongodb:27017` instead of `localhost:27017`
+- **Missing Environment Loading**: Forgetting `dotenv.config()` in MCP server startup
+- **Scope Issues**: Variable declarations in try/catch blocks causing reference errors
+- **Inadequate Logging**: Using console.log with objects that don't display properly
+
+**🔍 Essential Debugging Tools**:
+```javascript
+// Enhanced logging for MCP debugging
+function logDebug(message, data) {
+  console.log(`[MCP Debug] ${message}`);
+  if (data) {
+    console.log(JSON.stringify(data, null, 2));
+  }
+}
+
+// Environment variable verification
+console.log('[MCP] Environment check:', {
+  MONGODB_CONNECTION_STRING: process.env.MONGODB_CONNECTION_STRING,
+  MONGODB_DATABASE: process.env.MONGODB_DATABASE,
+  MCP_STORAGE_TYPE: process.env.MCP_STORAGE_TYPE
+});
+
+// CRITICAL: Explicit .env loading for MCP servers
+import dotenv from 'dotenv';
+import path from 'path';
+const envPath = path.resolve(__dirname, '..', '.env');
+dotenv.config({ path: envPath });
+console.log(`[MCP] Loading .env from: ${envPath}`);
+```
+
+**🚨 Critical Fixes Required**:
+1. **LibreChat MCP Service**: Fix variable scope in `/api/server/services/MCP.js`
+2. **MCP Server Startup**: Add `dotenv.config()` for environment loading
+3. **MongoDB Connection**: Use correct connection string for host processes
+4. **Logging Enhancement**: Implement proper object logging for debugging
+
+### Production Deployment Checklist
+
+**✅ Pre-Deployment Verification**:
+- [ ] MCP server connects to MongoDB successfully
+- [ ] Environment variables loaded correctly
+- [ ] Enhanced logging implemented
+- [ ] Variable scope errors resolved
+- [ ] Connection string matches architecture
+- [ ] Timeout issues eliminated
+
+**🔧 Monitoring and Maintenance**:
+- [ ] MCP server health checks
+- [ ] MongoDB connection monitoring
+- [ ] Performance metrics collection
+- [ ] Error rate tracking
+- [ ] User isolation verification
 
 ---
 
