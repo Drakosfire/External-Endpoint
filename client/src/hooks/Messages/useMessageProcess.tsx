@@ -93,11 +93,20 @@ export default function useMessageProcess({ message }: { message?: TMessage | nu
       latestMultiMessage &&
       latestMultiMessage.conversationId === message?.conversationId
     ) {
-      const newSibling = Object.assign({}, latestMultiMessage, {
-        parentMessageId: message.parentMessageId,
-        depth: message.depth,
-      });
-      setSiblingMessage(newSibling);
+      // Check if the latest message is already a child of another message
+      const isAlreadyChild = latestMultiMessage.parentMessageId !== null;
+
+      // Only create a sibling if the latest message isn't already a child
+      if (!isAlreadyChild) {
+        const newSibling = Object.assign({}, latestMultiMessage, {
+          parentMessageId: message.parentMessageId,
+          depth: message.depth,
+        });
+        setSiblingMessage(newSibling);
+      } else {
+        // If it's already a child, clear any existing sibling
+        setSiblingMessage(null);
+      }
     }
   }, [hasNoChildren, latestMultiMessage, message, setSiblingMessage, latestMessage]);
 
