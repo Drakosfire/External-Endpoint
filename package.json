@@ -146,5 +146,11 @@
       "admin/",
       "packages/"
     ]
+  },
+  "dependencies": {
+    "@types/uuid": "^10.0.0",
+    "mongodb": "^6.17.0",
+    "uuid": "^11.1.0",
+    "zod": "^3.25.56"
   }
 }
