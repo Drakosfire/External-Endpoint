@@ -26,6 +26,7 @@ const buildFunction = {
   [EModelEndpoint.anthropic]: anthropic.buildOptions,
   [EModelEndpoint.assistants]: assistants.buildOptions,
   [EModelEndpoint.azureAssistants]: azureAssistants.buildOptions,
+  [EModelEndpoint.external]: external.buildOptions,
 };
 
 async function buildEndpointOption(req, res, next) {
