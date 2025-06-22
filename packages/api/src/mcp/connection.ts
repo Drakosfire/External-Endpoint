@@ -101,6 +101,9 @@ export class MCPConnection extends EventEmitter {
       },
     );
 
+    // CRITICAL FIX: Patch client.callTool to add userId for agents
+    this.patchClientCallTool();
+
     this.setupEventListeners();
   }
 
@@ -274,6 +277,42 @@ export class MCPConnection extends EventEmitter {
       this.emitError(error, 'Failed to construct transport:');
       throw error;
     }
+  }
+
+  /**
+   * CRITICAL FIX: Patches the MCP SDK client.callTool method to add userId parameter
+   * This fixes the issue where agents call connection.client.callTool() directly,
+   * bypassing the MCP Manager and not passing userId to MCP servers.
+   */
+  private patchClientCallTool(): void {
+    const originalCallTool = this.client.callTool.bind(this.client);
+    const userId = this.userId;
+    const userPart = this.userId ? `[User: ${this.userId}]` : '';
+
+    this.client.callTool = async (request: any) => {
+      // Add userId to the request params if this is a user-specific connection
+      if (userId && request && typeof request === 'object') {
+        this.logger?.debug(`${this.getLogPrefix()} PATCHED callTool: Adding userId "${userId}" to request`);
+
+        // Clone the request to avoid modifying the original
+        const patchedRequest = {
+          ...request,
+          arguments: request.arguments || {},
+          ...(userId && { userId }) // Add userId to top-level params
+        };
+
+        this.logger?.debug(`${this.getLogPrefix()} PATCHED callTool final params:`, JSON.stringify({
+          name: patchedRequest.name,
+          hasUserId: !!patchedRequest.userId,
+          userIdValue: patchedRequest.userId,
+          argumentKeys: Object.keys(patchedRequest.arguments || {})
+        }, null, 2));
+
+        return originalCallTool(patchedRequest);
+      }
+
+      return originalCallTool(request);
+    };
   }
 
   private setupEventListeners(): void {
