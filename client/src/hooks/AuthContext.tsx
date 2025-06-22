@@ -23,6 +23,7 @@ import {
 import { TAuthConfig, TUserContext, TAuthContext, TResError } from '~/common';
 import useTimeout from './useTimeout';
 import store from '~/store';
+import logger from '~/utils/logger';
 
 const AuthContext = createContext<TAuthContext | undefined>(undefined);
 
@@ -187,13 +188,18 @@ const AuthContextProvider = ({
 
   useEffect(() => {
     const handleTokenUpdate = (event) => {
-      console.log('tokenUpdated event received event');
+      logger.debug('[AuthContext] Token update event received');
       const newToken = event.detail;
-      setUserContext({
-        token: newToken,
-        isAuthenticated: true,
-        user: user,
-      });
+      if (newToken) {
+        logger.debug('[AuthContext] Setting new token and reinitializing SSE');
+        setUserContext({
+          token: newToken,
+          isAuthenticated: true,
+          user: user,
+        });
+        // Dispatch a custom event to notify SSE connection to reconnect
+        window.dispatchEvent(new CustomEvent('sseReconnect', { detail: newToken }));
+      }
     };
 
     window.addEventListener('tokenUpdated', handleTokenUpdate);
