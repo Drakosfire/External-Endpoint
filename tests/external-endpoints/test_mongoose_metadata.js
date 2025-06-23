@@ -1,8 +1,12 @@
-const mongoose = require('mongoose');
-require('dotenv').config();
+require('dotenv').config({ path: '../../.env' });
 
-// Import the actual Conversation model
-const Conversation = require('./api/models/schema/convoSchema');
+// Use LibreChat's database connection system  
+const { connectDb } = require('./api/db/connect');
+
+// Create the models directly
+const mongoose = require('./api/node_modules/mongoose');
+const { convoSchema } = require('./packages/data-schemas/dist/index.cjs');
+const Conversation = mongoose.models.Conversation || mongoose.model('Conversation', convoSchema);
 
 const MONGODB_URI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/LibreChat';
 
@@ -10,8 +14,8 @@ async function testMongooseMetadata() {
     console.log('=== Testing Mongoose Metadata Operations ===\n');
 
     try {
-        await mongoose.connect(MONGODB_URI);
-        console.log('Connected to MongoDB via Mongoose');
+        const db = await connectDb();
+        console.log('Connected to MongoDB via LibreChat connection system');
 
         const testConversationId = 'mongoose-test-' + Date.now();
 

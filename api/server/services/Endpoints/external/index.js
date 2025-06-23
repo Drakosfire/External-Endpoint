@@ -5,12 +5,10 @@ const { logger } = require('~/config');
 const { v4: uuidv4 } = require('uuid');
 const { saveMessage, getUserById, saveConvo } = require('~/models');
 const { getConvo, Conversation } = require('~/models/Conversation');
-// Alternative import for Conversation model
-const ConversationModel = require('~/models/schema/convoSchema');
 const { broadcastToUsers, broadcastNewConversation } = require('~/server/sseClients');
 const { SystemRoles } = require('librechat-data-provider');
 const { ObjectId } = require('mongodb');
-const User = require('~/models/User');
+const { User } = require('~/db/models');
 
 // Custom extractor to get JWT from query param or Authorization header
 const extractJwtToken = (req) => {

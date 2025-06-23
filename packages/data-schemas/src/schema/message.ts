@@ -124,7 +124,7 @@ const messageSchema: Schema<IMessage> = new Schema(
           required: true,
         },
         tag: {
-          type: mongoose.Schema.Types.Mixed,
+          type: Schema.Types.Mixed,
           required: false,
         },
         text: {
@@ -141,7 +141,7 @@ const messageSchema: Schema<IMessage> = new Schema(
       select: false,
       default: false,
     },
-    files: { type: [{ type: mongoose.Schema.Types.Mixed }], default: undefined },
+    files: { type: [{ type: Schema.Types.Mixed }], default: undefined },
     plugin: {
       type: {
         latest: {
@@ -149,7 +149,7 @@ const messageSchema: Schema<IMessage> = new Schema(
           required: false,
         },
         inputs: {
-          type: [mongoose.Schema.Types.Mixed],
+          type: [Schema.Types.Mixed],
           required: false,
           default: undefined,
         },
