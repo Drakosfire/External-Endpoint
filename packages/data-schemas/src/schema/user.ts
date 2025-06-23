@@ -191,8 +191,7 @@ const userSchema = new Schema<IUser>(
   { timestamps: true },
 );
 
-// Add indexes for phone number lookups
-User.index({ phoneNumber: 1 });
-User.index({ 'metadata.phoneNumber': 1 });
+// Add index for metadata phone number lookups
+userSchema.index({ 'metadata.phoneNumber': 1 });
 
-export default User;
+export default userSchema;

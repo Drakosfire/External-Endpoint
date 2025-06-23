@@ -5,7 +5,7 @@ import type { IMongoFile } from '~/types';
 const file: Schema<IMongoFile> = new Schema(
   {
     user: {
-      type: mongoose.Schema.Types.ObjectId,
+      type: Schema.Types.ObjectId,
       ref: 'User',
       index: true,
       required: true,
@@ -80,6 +80,6 @@ const file: Schema<IMongoFile> = new Schema(
   },
 );
 
-file.index({ createdAt: 1, updatedAt: 1 });
+fileSchema.index({ createdAt: 1, updatedAt: 1 });
 
 export default file;

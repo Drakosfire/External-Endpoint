@@ -1,6 +1,60 @@
-const { findUser, createUser, updateUser } = require('./api/models');
-const { getConvo, getMessages } = require('./api/models/Conversation');
-const { v4: uuidv4 } = require('uuid');
+// Load environment variables from .env file
+require('dotenv').config({ path: '../../.env' });
+
+// Fix imports similar to other tests
+const mongoose = require('./api/node_modules/mongoose');
+const { userSchema, convoSchema, messageSchema } = require('./packages/data-schemas/dist/index.cjs');
+
+// Create models manually like in other tests
+const User = mongoose.models.User || mongoose.model('User', userSchema);
+const Conversation = mongoose.models.Conversation || mongoose.model('Conversation', convoSchema);
+const Message = mongoose.models.Message || mongoose.model('Message', messageSchema);
+
+// Create user functions
+const findUser = async (query) => {
+    return await User.findOne(query);
+};
+
+const createUser = async (userData, returnObj = false, bypassPermissions = false) => {
+    const user = new User(userData);
+    const savedUser = await user.save();
+    return returnObj ? savedUser : savedUser._id;
+};
+
+const updateUser = async (userId, updateData) => {
+    return await User.findByIdAndUpdate(userId, updateData, { new: true });
+};
+
+const getConvo = async (userId, conversationId) => {
+    return await Conversation.findOne({ user: userId, conversationId: conversationId });
+};
+
+const getMessages = async (conversationId) => {
+    return await Message.find({ conversationId: conversationId }).sort({ createdAt: 1 });
+};
+
+const { v4: uuidv4 } = require('./api/node_modules/uuid');
+
+// Validate required environment variables
+function validateEnvironmentVariables() {
+    const requiredVars = [
+        { name: 'MONGO_URI', value: process.env.MONGO_URI }
+    ];
+
+    const missingVars = requiredVars.filter(envVar => !envVar.value);
+
+    if (missingVars.length > 0) {
+        console.error('❌ Missing required environment variables in .env file:');
+        missingVars.forEach(envVar => {
+            console.error(`   - ${envVar.name}`);
+        });
+        console.error('\nPlease ensure these variables are set in your .env file:');
+        console.error('   MONGO_URI=mongodb://localhost:27017/LibreChat');
+        process.exit(1);
+    }
+
+    console.log('✅ Environment variables loaded from .env for SMS testing');
+}
 
 // Test configurations
 const testPhoneNumbers = [
@@ -380,6 +434,9 @@ async function runAllTests() {
     console.log('='.repeat(60) + '\n');
 
     try {
+        // Validate environment variables first
+        validateEnvironmentVariables();
+
         // Test 1: Phone number validation
         const { validNumbers, invalidNumbers } = await testPhoneNumberValidation();
 
