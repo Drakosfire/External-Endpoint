@@ -244,7 +244,7 @@ const getOrCreateSMSUser = async (phoneNumber, requestMetadata = {}) => {
         try {
             logger.debug(`[getOrCreateSMSUser] About to call updateUser with payload:`, updatePayload);
             // Use direct MongoDB update since updateUser() doesn't handle mixed $set/$inc operations
-            const User = require('~/models/User');
+            const { User } = require('~/db/models');
             const updateResult = await User.findByIdAndUpdate(user._id, updatePayload, {
                 new: true,
                 runValidators: true,
