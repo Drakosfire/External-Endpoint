@@ -164,9 +164,16 @@ const initializeAgent = async ({
   }
 
   /** @type {import('@librechat/agents').ClientOptions} */
+  const existingModel = agent.model_parameters?.model; // Preserve existing model from external client
   agent.model_parameters = { ...options.llmConfig };
   if (options.configOptions) {
     agent.model_parameters.configuration = options.configOptions;
+  }
+
+  // BUGFIX: Preserve model field set by external client for external messages
+  // Ensure model is set from modelOptions or existing model
+  if (!agent.model_parameters.model) {
+    agent.model_parameters.model = modelOptions.model || existingModel || agent.model;
   }
 
   if (agent.instructions && agent.instructions !== '') {

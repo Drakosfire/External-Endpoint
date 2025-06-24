@@ -324,16 +324,6 @@ class ExternalClient extends BaseClient {
         const correctEndpointType = endpointMap[llmEndpointType.toLowerCase()] || llmEndpointType;
         logger.info(`[ExternalClient] Mapped endpoint type: ${correctEndpointType}`);
 
-        // Handle agent endpoint with enhanced detection
-        if (correctEndpointType === 'agents') {
-            // Set agent_id from message metadata or conversation or options
-            const agent_id = message.metadata?.agent_id || conversation.agent_id || this.options.agent_id;
-            if (agent_id) {
-                this.options.agent_id = agent_id;
-                logger.info(`[ExternalClient] Using agent_id: ${agent_id}`);
-            }
-        }
-
         // Get the appropriate LLM client based on conversation endpoint
         let initializeModule;
         try {
@@ -357,12 +347,6 @@ class ExternalClient extends BaseClient {
             }
         };
 
-        logger.info('[ExternalClient] Initializing LLM client with options:', {
-            endpoint: endpointOption.endpoint,
-            model: endpointOption.modelOptions.model,
-            agent_id: endpointOption.agent_id
-        });
-
         // Ensure user information is available in the request BEFORE agent loading
         if (!this.req.user) {
             this.req.user = { id: this.user };
@@ -375,9 +359,22 @@ class ExternalClient extends BaseClient {
             userType: typeof this.req.user.id
         });
 
-        // Handle agent endpoint
+        // Handle agent endpoint with enhanced detection
         if (correctEndpointType === 'agents') {
+            // Set agent_id from message metadata or conversation or options
+            const agent_id = message.metadata?.agent_id || conversation.agent_id || this.options.agent_id;
+            if (agent_id) {
+                this.options.agent_id = agent_id;
+                logger.info(`[ExternalClient] Using agent_id: ${agent_id}`);
+            }
+
             logger.info('[ExternalClient] Loading agent for external message');
+            logger.debug('[ExternalClient] Agent loading parameters:', {
+                agent_id: this.options.agent_id,
+                endpoint: correctEndpointType,
+                model_parameters: this.options.model_parameters,
+                message_metadata: message.metadata
+            });
             const { loadAgent } = require('~/models/Agent');
             const agent = await loadAgent({
                 req: this.req,
@@ -389,6 +386,47 @@ class ExternalClient extends BaseClient {
             if (!agent) {
                 logger.error('[ExternalClient] Agent not found');
                 throw new Error('Agent not found');
+            }
+
+            // BUGFIX: Ensure agent has proper model_parameters.model for external messages
+            // This prevents "Cannot read properties of undefined (reading 'match')" errors
+            logger.debug('[ExternalClient] Agent model_parameters check:', {
+                'has_model_parameters': !!agent.model_parameters,
+                'model_parameters': agent.model_parameters,
+                'model_parameters.model': agent.model_parameters?.model,
+                'agent.model': agent.model,
+                'message.metadata': message.metadata
+            });
+
+            if (!agent.model_parameters) {
+                logger.warn('[ExternalClient] Agent missing model_parameters, creating empty object');
+                agent.model_parameters = {};
+            }
+
+            logger.debug('[ExternalClient] Checking model_parameters.model condition:', {
+                'model_parameters.model': agent.model_parameters.model,
+                'condition !agent.model_parameters.model': !agent.model_parameters.model,
+                'typeof model': typeof agent.model_parameters.model
+            });
+
+            if (!agent.model_parameters.model) {
+                // Use model from message metadata, agent's model property, or default
+                logger.debug('[ExternalClient] Model fallback debug:', {
+                    'message.metadata?.model': message.metadata?.model,
+                    'agent.model': agent.model,
+                    'this.model': this.model,
+                    'agent object keys': Object.keys(agent),
+                    'agent.model type': typeof agent.model
+                });
+                const modelToUse = message.metadata?.model || agent.model || this.model || 'gpt-4o';
+                logger.warn('[ExternalClient] Agent missing model_parameters.model, setting to:', modelToUse);
+                agent.model_parameters.model = modelToUse;
+                logger.info('[ExternalClient] Set model_parameters.model for agent:', {
+                    agent_id: agent.id,
+                    model: agent.model_parameters.model
+                });
+            } else {
+                logger.debug('[ExternalClient] Agent already has model_parameters.model:', agent.model_parameters.model);
             }
 
             endpointOption.agent = Promise.resolve(agent);

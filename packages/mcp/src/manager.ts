@@ -427,6 +427,20 @@ export class MCPManager {
     const { userId, ...callOptions } = options ?? {};
     const logPrefix = userId ? `[MCP][User: ${userId}][${serverName}]` : `[MCP][${serverName}]`;
 
+    // ===== CORE MANAGER ENTRY LOGGING =====
+    this.logger.debug(`${logPrefix}[${toolName}] ===== CORE MANAGER CALLTOOL INVOKED =====`);
+    this.logger.debug(`${logPrefix}[${toolName}] Received parameters:`, {
+      serverName,
+      toolName,
+      provider,
+      hasToolArguments: !!toolArguments,
+      toolArgumentsKeys: toolArguments ? Object.keys(toolArguments) : 'NO_ARGS',
+      hasOptions: !!options,
+      optionsKeys: options ? Object.keys(options) : 'NO_OPTIONS',
+      extractedUserId: userId,
+      userIdType: typeof userId
+    });
+
     try {
       if (userId) {
         this.updateUserLastActivity(userId);
@@ -451,7 +465,7 @@ export class MCPManager {
         );
       }
 
-      // Debug: log userId before making the request
+      // ===== MCP REQUEST CONSTRUCTION =====
       this.logger.debug(`${logPrefix}[${toolName}] About to call tool with userId: "${userId}" (type: ${typeof userId})`);
 
       const requestParams = {
@@ -462,20 +476,22 @@ export class MCPManager {
         ...(userId && { userId }), // Add userId to params if available
       };
 
-      // Debug: log the final params
-      this.logger.debug(`${logPrefix}[${toolName}] Final request params:`, JSON.stringify(requestParams, null, 2));
+      this.logger.debug(`${logPrefix}[${toolName}] ===== FINAL MCP REQUEST PARAMS =====`);
+      this.logger.debug(`${logPrefix}[${toolName}] Request params structure:`, {
+        name: requestParams.name,
+        hasArguments: !!requestParams.arguments,
+        argumentsKeys: requestParams.arguments ? Object.keys(requestParams.arguments) : 'NO_ARGS',
+        hasUserId: !!requestParams.userId,
+        userId: requestParams.userId,
+        userIdType: typeof requestParams.userId
+      });
+      this.logger.debug(`${logPrefix}[${toolName}] Full request params JSON:`, JSON.stringify(requestParams, null, 2));
 
-      const result = await connection.client.request(
-        {
-          method: 'tools/call',
-          params: requestParams,
-        },
-        CallToolResultSchema,
-        {
-          timeout: connection.timeout,
-          ...callOptions,
-        },
-      );
+      // CRITICAL: Use client.callTool to trigger userId patch in connection
+      this.logger.debug(`${logPrefix}[${toolName}] ===== SENDING MCP REQUEST =====`);
+      this.logger.debug(`${logPrefix}[${toolName}] Using client.callTool method to send request...`);
+      const result = await connection.client.callTool(requestParams);
+      this.logger.debug(`${logPrefix}[${toolName}] ===== MCP REQUEST COMPLETED =====`);
       if (userId) {
         this.updateUserLastActivity(userId);
       }

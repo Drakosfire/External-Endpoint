@@ -108,9 +108,8 @@ https://www.librechat.ai/docs/configuration/stt_tts`);
 
     return null;
   } else {
-    logger.info('Custom config file loaded:');
-    logger.info(JSON.stringify(customConfig, null, 2));
-    logger.debug('Custom config:', customConfig);
+    logger.info(`Custom config file loaded: version ${customConfig.version || 'unknown'}, ${Object.keys(customConfig.endpoints || {}).length} endpoint(s), cache: ${customConfig.cache || false}`);
+    logger.debug('Custom config loaded successfully');
   }
 
   (customConfig.endpoints?.custom ?? [])
@@ -142,7 +141,7 @@ function parseCustomParams(endpointName, customParams) {
   if (!validEndpoints.has(paramEndpoint)) {
     throw new Error(
       `defaultParamsEndpoint of "${endpointName}" endpoint is invalid. ` +
-        `Valid options are ${Array.from(validEndpoints).join(', ')}`,
+      `Valid options are ${Array.from(validEndpoints).join(', ')}`,
     );
   }
 
@@ -159,7 +158,7 @@ function parseCustomParams(endpointName, customParams) {
   if (paramKeys.some((key) => !validKeys.has(key))) {
     throw new Error(
       `paramDefinitions of "${endpointName}" endpoint contains invalid key(s). ` +
-        `Valid parameter keys are ${Array.from(validKeys).join(', ')}`,
+      `Valid parameter keys are ${Array.from(validKeys).join(', ')}`,
     );
   }
 

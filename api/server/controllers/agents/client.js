@@ -146,7 +146,7 @@ class AgentClient extends BaseClient {
    * `AgentClient` is not opinionated about vision requests, so we don't do anything here
    * @param {MongoFile[]} attachments
    */
-  checkVisionRequest() {}
+  checkVisionRequest() { }
 
   getSaveOptions() {
     // TODO:
@@ -721,6 +721,16 @@ class AgentClient extends BaseClient {
         config.configurable.agent_id = agent.id;
         config.configurable.name = agent.name;
         config.configurable.agent_index = i;
+
+        // DEBUG: Log agent structure to understand the undefined model error
+        logger.debug('[AgentClient] Agent structure debug:', {
+          agent_id: agent.id,
+          has_model_parameters: !!agent.model_parameters,
+          model_parameters: agent.model_parameters,
+          agent_model: agent.model,
+          agent_keys: Object.keys(agent)
+        });
+
         const noSystemMessages = noSystemModelRegex.some((regex) =>
           agent.model_parameters.model.match(regex),
         );
@@ -1080,7 +1090,7 @@ class AgentClient extends BaseClient {
   }
 
   /** Silent method, as `recordCollectedUsage` is used instead */
-  async recordTokenUsage() {}
+  async recordTokenUsage() { }
 
   getEncoding() {
     return 'o200k_base';

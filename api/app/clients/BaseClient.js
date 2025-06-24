@@ -237,11 +237,11 @@ class BaseClient {
     const userMessage = opts.isEdited
       ? this.currentMessages[this.currentMessages.length - 2]
       : this.createUserMessage({
-          messageId: userMessageId,
-          parentMessageId,
-          conversationId,
-          text: message,
-        });
+        messageId: userMessageId,
+        parentMessageId,
+        conversationId,
+        text: message,
+      });
 
     if (typeof opts?.getReqData === 'function') {
       opts.getReqData({
@@ -547,7 +547,7 @@ class BaseClient {
 
     const promptTokens = this.maxContextTokens - remainingContextTokens;
 
-    logger.debug('[BaseClient] tokenCountMap:', tokenCountMap);
+    // logger.debug('[BaseClient] tokenCountMap:', tokenCountMap);
     logger.debug('[BaseClient]', {
       promptTokens,
       remainingContextTokens,
@@ -612,7 +612,7 @@ class BaseClient {
     );
 
     if (tokenCountMap) {
-      logger.debug('[BaseClient] tokenCountMap', tokenCountMap);
+      // logger.debug('[BaseClient] tokenCountMap', tokenCountMap);
       if (tokenCountMap[userMessage.messageId]) {
         userMessage.tokenCount = tokenCountMap[userMessage.messageId];
         logger.debug('[BaseClient] userMessage', userMessage);
