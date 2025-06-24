@@ -21,8 +21,7 @@ const { createTransaction, createStructuredTransaction } = require('./Transactio
 const spendTokens = async (txData, tokenUsage) => {
   const { promptTokens, completionTokens } = tokenUsage;
   logger.debug(
-    `[spendTokens] conversationId: ${txData.conversationId}${
-      txData?.context ? ` | Context: ${txData?.context}` : ''
+    `[spendTokens] conversationId: ${txData.conversationId}${txData?.context ? ` | Context: ${txData?.context}` : ''
     } | Token usage: `,
     {
       promptTokens,
@@ -48,19 +47,19 @@ const spendTokens = async (txData, tokenUsage) => {
     }
 
     if (prompt || completion) {
-      logger.debug('[spendTokens] Transaction data record against balance:', {
-        user: txData.user,
-        prompt: prompt?.prompt,
-        promptRate: prompt?.rate,
-        completion: completion?.completion,
-        completionRate: completion?.rate,
-        balance: completion?.balance ?? prompt?.balance,
-      });
+      // logger.debug('[spendTokens] Transaction data record against balance:', {
+      //   user: txData.user,
+      //   prompt: prompt?.prompt,
+      //   promptRate: prompt?.rate,
+      //   completion: completion?.completion,
+      //   completionRate: completion?.rate,
+      //   balance: completion?.balance ?? prompt?.balance,
+      // });
     } else {
-      logger.debug('[spendTokens] No transactions incurred against balance');
+      // logger.debug('[spendTokens] No transactions incurred against balance');
     }
   } catch (err) {
-    logger.error('[spendTokens]', err);
+    // logger.error('[spendTokens]', err);
   }
 };
 
@@ -88,8 +87,7 @@ const spendTokens = async (txData, tokenUsage) => {
 const spendStructuredTokens = async (txData, tokenUsage) => {
   const { promptTokens, completionTokens } = tokenUsage;
   logger.debug(
-    `[spendStructuredTokens] conversationId: ${txData.conversationId}${
-      txData?.context ? ` | Context: ${txData?.context}` : ''
+    `[spendStructuredTokens] conversationId: ${txData.conversationId}${txData?.context ? ` | Context: ${txData?.context}` : ''
     } | Token usage: `,
     {
       promptTokens,
@@ -118,16 +116,16 @@ const spendStructuredTokens = async (txData, tokenUsage) => {
     }
 
     if (prompt || completion) {
-      logger.debug('[spendStructuredTokens] Transaction data record against balance:', {
-        user: txData.user,
-        prompt: prompt?.prompt,
-        promptRate: prompt?.rate,
-        completion: completion?.completion,
-        completionRate: completion?.rate,
-        balance: completion?.balance ?? prompt?.balance,
-      });
+      // logger.debug('[spendStructuredTokens] Transaction data record against balance:', {
+      //   user: txData.user,
+      //   prompt: prompt?.prompt,
+      //   promptRate: prompt?.rate,
+      //   completion: completion?.completion,
+      //   completionRate: completion?.rate,
+      //   balance: completion?.balance ?? prompt?.balance,
+      // });
     } else {
-      logger.debug('[spendStructuredTokens] No transactions incurred against balance');
+      // logger.debug('[spendStructuredTokens] No transactions incurred against balance');
     }
   } catch (err) {
     logger.error('[spendStructuredTokens]', err);

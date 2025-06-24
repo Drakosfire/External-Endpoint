@@ -16,9 +16,12 @@ let flowManager = null;
 function getMCPManager(userId) {
   if (!mcpManager) {
     mcpManager = MCPManager.getInstance();
+    logger.debug(`[CONFIG] Created new MCPManager instance for userId: ${userId || 'undefined'}`);
   } else {
     mcpManager.checkIdleConnections(userId);
+    logger.debug(`[CONFIG] Returning existing MCPManager instance for userId: ${userId || 'undefined'}`);
   }
+  logger.debug(`[CONFIG] MCPManager instance type: ${mcpManager.constructor.name}`);
   return mcpManager;
 }
 
