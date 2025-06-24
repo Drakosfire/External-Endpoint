@@ -672,13 +672,49 @@ console.log('Connected:', await connection.isConnected());
 - Check MCP server implementation for the specific tool
 - Examine response format compliance with MCP protocol
 
-This documentation provides a comprehensive understanding of LibreChat's MCP integration, enabling developers to effectively work with, extend, and debug the MCP system. 
+This documentation provides a comprehensive understanding of LibreChat's MCP integration, enabling developers to effectively work with, extend, and debug the MCP system.
+
+## 🚨 CRITICAL DEVELOPMENT REQUIREMENT: Build Process
+
+### **IMPORTANT**: LibreChat runs from compiled JavaScript, not TypeScript source
+
+**Key Issue**: When making changes to MCP TypeScript files in `packages/api/src/mcp/`, the changes **WILL NOT** take effect until you rebuild the API package.
+
+**Required Steps After Any MCP Changes:**
+```bash
+npm run build:api
+```
+
+**Why This Matters:**
+- LibreChat loads MCP code from `packages/api/dist/index.js` (compiled/bundled)
+- TypeScript source files in `packages/api/src/mcp/` are **NOT** directly executed
+- Forgetting to rebuild leads to debugging "phantom issues" where changes appear ignored
+
+**Evidence Files:**
+- Source: `packages/api/src/mcp/manager.ts` ← Your edits go here  
+- Runtime: `packages/api/dist/index.js` ← LibreChat actually runs this
+- Type Defs: `packages/api/dist/types/mcp/manager.d.ts` ← Indicates compiled usage
+
+**Development Workflow:**
+1. Edit TypeScript files in `packages/api/src/mcp/`
+2. **Always run `npm run build:api`** before testing
+3. Restart LibreChat to load the new compiled code
+4. Test your changes
+
+This was the root cause of the userId parameter issue - the connection patches were perfect in the source code but weren't being executed because the compiled JavaScript was outdated. 
 
 # LibreChat MCP UserID Parameter Enhancement
 
-## Change Description
+## ✅ SUCCESSFULLY IMPLEMENTED
 
-Modified the MCP Manager in `packages/mcp/src/manager.ts` to pass the `userID` as a top-level parameter in MCP tool call requests. This enhancement enables MCP servers to perform user-specific operations while maintaining clean separation from tool arguments.
+Modified the MCP connection layer in `packages/api/src/mcp/connection.ts` to automatically inject `userId` into tool call arguments for user-specific MCP connections. This enhancement enables MCP servers to perform user-specific operations while maintaining backward compatibility.
+
+## Root Cause Analysis Completed
+
+**Problem**: MCP servers received `userId: undefined` instead of actual user IDs.  
+**Root Cause**: LibreChat runs compiled JavaScript from `packages/api/dist/`, not TypeScript source.  
+**Solution**: Enhanced connection patches + mandatory `npm run build:api` after changes.  
+**Result**: User-specific data isolation working perfectly ✅
 
 ## Implementation Details
 

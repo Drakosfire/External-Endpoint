@@ -356,7 +356,19 @@ function createToolInstance({ res, toolName, serverName, toolDefinition, provide
       const customUserVars =
         config?.configurable?.userMCPAuthMap?.[`${Constants.mcp_prefix}${serverName}`];
 
+      // ===== COMPREHENSIVE MCP.JS LOGGING =====
+      logger.debug(`[MCP.js][${serverName}][${toolName}] ===== MCP SERVICE LAYER DEBUG =====`);
+      logger.debug(`[MCP.js][${serverName}][${toolName}] finalUserId resolved: "${finalUserId}" (type: ${typeof finalUserId})`);
+      logger.debug(`[MCP.js][${serverName}][${toolName}] config.configurable.user_id: "${config?.configurable?.user_id}"`);
+      logger.debug(`[MCP.js][${serverName}][${toolName}] req.user.id: "${req.user?.id}"`);
+      logger.debug(`[MCP.js][${serverName}][${toolName}] toolArguments:`, toolArguments);
+      logger.debug(`[MCP.js][${serverName}][${toolName}] About to call API Manager callTool...`);
+
+      // Ensure user object has proper structure for API Manager
+      const userForMCP = config?.configurable?.user || { id: finalUserId };
+
       const result = await mcpManager.callTool({
+        user: userForMCP,  // API Manager expects user as first parameter
         serverName,
         toolName,
         provider,
@@ -376,6 +388,13 @@ function createToolInstance({ res, toolName, serverName, toolDefinition, provide
         },
         oauthStart,
         oauthEnd,
+      });
+
+      logger.debug(`[MCP.js][${serverName}][${toolName}] ===== CORE MANAGER RETURNED =====`);
+      logger.debug(`[MCP.js][${serverName}][${toolName}] Result received:`, {
+        hasResult: !!result,
+        resultType: typeof result,
+        resultKeys: result && typeof result === 'object' ? Object.keys(result) : 'N/A'
       });
 
       if (isAssistantsEndpoint(provider) && Array.isArray(result)) {
