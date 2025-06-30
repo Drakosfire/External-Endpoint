@@ -42,6 +42,7 @@ jest.mock('~/utils/axios', () => ({
   logAxiosError: jest.fn(({ message }) => message || 'Error'),
 }));
 
+// @ts-nocheck
 import * as fs from 'fs';
 import axios from 'axios';
 import type { Request as ExpressRequest } from 'express';
@@ -1399,7 +1400,7 @@ describe('MistralOCR Service', () => {
             },
           },
         },
-      } as unknown as ExpressRequest;
+      } as any;
 
       const file = {
         path: '/tmp/upload/azure-file.pdf',

@@ -34,8 +34,14 @@ const initializeClient = async ({ req, res, endpointOption }) => {
             endpoint: endpoint,
             endpointType: endpointType,
             model: req.body.metadata?.model || endpointOption?.modelOptions?.model || 'gpt-4o',
+            attachments: endpointOption?.attachments, // Pass through MMS media attachments
             ...endpointOption
         };
+
+        // Log attachment passing
+        if (endpointOption?.attachments) {
+            logger.info(`[External Initialize] Passing ${endpointOption.attachments.length} attachment(s) to client`);
+        }
 
         // Add agent-specific options if this is an agent request
         if (isAgentRequest) {

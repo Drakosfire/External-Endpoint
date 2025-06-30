@@ -126,7 +126,15 @@ const debugTraverse = winston.format.printf(({ level, message, timestamp, ...met
     return `${timestamp} ${level}: ${JSON.stringify(message)}`;
   }
 
-  let msg = `${timestamp} ${level}: ${truncateLongStrings(message?.trim(), 150)}`;
+  let msg;
+
+  // Don't truncate info-level messages (like "Available tools")
+  if (level === 'info') {
+    msg = `${timestamp} ${level}: ${message?.trim()}`;
+  } else {
+    msg = `${timestamp} ${level}: ${truncateLongStrings(message?.trim(), 150)}`;
+  }
+
   try {
     if (level !== 'debug') {
       return msg;

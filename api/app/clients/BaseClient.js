@@ -559,6 +559,20 @@ class BaseClient {
   }
 
   async sendMessage(message, opts = {}) {
+    // DEBUG: Track attachments in BaseClient.sendMessage
+    logger.info(`[BaseClient] sendMessage called with attachments: ${!!opts.attachments}`);
+    if (opts.attachments) {
+      if (opts.attachments instanceof Promise) {
+        opts.attachments.then(attachments => {
+          logger.info(`[BaseClient] Attachments (Promise): count=${attachments?.length}`);
+        });
+      } else if (Array.isArray(opts.attachments)) {
+        logger.info(`[BaseClient] Attachments (Array): count=${opts.attachments.length}`);
+      } else {
+        logger.info(`[BaseClient] Attachments type: ${typeof opts.attachments}`);
+      }
+    }
+
     /** @type {Promise<TMessage>} */
     let userMessagePromise;
     const { user, head, isEdited, conversationId, responseMessageId, saveOptions, userMessage } =
@@ -596,6 +610,21 @@ class BaseClient {
       this.continued = true;
     } else {
       this.currentMessages.push(userMessage);
+    }
+
+    // CRITICAL FIX: Transfer attachments from opts to this.options for buildMessages
+    if (opts.attachments) {
+      this.options.attachments = opts.attachments;
+      // Handle both array and Promise cases
+      if (Array.isArray(opts.attachments)) {
+        logger.info(`[BaseClient] Transferred attachments array:`, {
+          count: opts.attachments.length,
+          types: opts.attachments.map(a => a.type),
+          sources: opts.attachments.map(a => a.source)
+        });
+      } else {
+        logger.info(`[BaseClient] Transferred attachments (Promise):`, typeof opts.attachments);
+      }
     }
 
     let {
