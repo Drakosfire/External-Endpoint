@@ -200,6 +200,15 @@ class ExternalClient extends BaseClient {
         // Convert string message to object if needed
         const messageObj = typeof message === 'string' ? { content: message } : message;
 
+        // Handle media attachments from MMS
+        if (this.options.attachments && this.options.attachments.length > 0) {
+            logger.info('[ExternalClient] Processing', this.options.attachments.length, 'MMS media attachment(s)');
+            // Set attachments for processing by the underlying client (as Promise for LibreChat compatibility)
+            this.options.attachments = Promise.resolve(this.options.attachments);
+        } else {
+            logger.debug('[ExternalClient] No MMS attachments to process');
+        }
+
         // CRITICAL FIX: Set conversation ID from options BEFORE creating/finding conversation
         if (!messageObj.conversationId && this.options.conversationId) {
             messageObj.conversationId = this.options.conversationId;
@@ -344,8 +353,23 @@ class ExternalClient extends BaseClient {
             endpoint: correctEndpointType,
             modelOptions: {
                 model: conversation.model || this.model
-            }
+            },
+            attachments: this.options.attachments // Pass through MMS media attachments
         };
+
+        // Pass attachments to agent client for automatic image processing
+        if (this.options.attachments) {
+            // Check if attachments is a Promise (from previous processing) or an array
+            if (this.options.attachments instanceof Promise) {
+                const attachments = await this.options.attachments;
+                logger.info('[ExternalClient] Passing', attachments.length, 'attachment(s) to agent for vision processing');
+                // Let AgentClient handle image encoding automatically via addImageURLs
+                endpointOption.attachments = Promise.resolve(attachments);
+            } else if (Array.isArray(this.options.attachments)) {
+                logger.info('[ExternalClient] Passing', this.options.attachments.length, 'attachment(s) to agent for vision processing');
+                endpointOption.attachments = Promise.resolve(this.options.attachments);
+            }
+        }
 
         // Ensure user information is available in the request BEFORE agent loading
         if (!this.req.user) {
@@ -491,14 +515,22 @@ class ExternalClient extends BaseClient {
         };
 
         // Process the message through the LLM
-        const response = await client.sendMessage(llmMessage.text, {
+        const sendOptions = {
             conversationId: llmMessage.conversationId,
             parentMessageId: llmMessage.parentMessageId,
             role: llmMessage.role,
             onProgress: (token) => {
                 logger.debug(`[ExternalClient] Received token: ${token}`);
             }
-        });
+        };
+
+        // CRITICAL FIX: Include attachments in sendMessage call if they exist
+        if (endpointOption.attachments) {
+            sendOptions.attachments = endpointOption.attachments;
+            logger.info(`[ExternalClient] Including attachments in LLM sendMessage call`);
+        }
+
+        const response = await client.sendMessage(llmMessage.text, sendOptions);
 
         logger.info('[ExternalClient] LLM processing complete');
         return response;

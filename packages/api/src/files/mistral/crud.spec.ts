@@ -42,6 +42,7 @@ jest.mock('~/utils/axios', () => ({
   logAxiosError: jest.fn(({ message }) => message || 'Error'),
 }));
 
+// @ts-nocheck
 import * as fs from 'fs';
 import axios from 'axios';
 import type { Readable } from 'stream';

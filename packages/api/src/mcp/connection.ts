@@ -375,20 +375,8 @@ export class MCPConnection extends EventEmitter {
     const userId = this.userId;
 
     this.client.request = async (message: any, responseSchema?: any, options?: any) => {
-      // FORCE CONSOLE LOGGING TO ENSURE VISIBILITY
-      console.log(`🔧 ${this.getLogPrefix()} ===== CONNECTION PATCH request() INVOKED =====`);
-      console.log(`🔧 ${this.getLogPrefix()} Original request message:`, JSON.stringify(message, null, 2));
-      console.log(`🔧 ${this.getLogPrefix()} Connection userId: "${userId}"`);
-
-      logger.debug(`${this.getLogPrefix()} ===== CONNECTION PATCH request() INVOKED =====`);
-      logger.debug(`${this.getLogPrefix()} Original request message:`, JSON.stringify(message, null, 2));
-      logger.debug(`${this.getLogPrefix()} Connection userId: "${userId}"`);
-
       // Check if this is a tools/call request and add userId if we have one
       if (userId && message && message.method === 'tools/call' && message.params) {
-        console.log(`🔧 ${this.getLogPrefix()} PATCHED request: Adding userId "${userId}" to tools/call request`);
-        logger.debug(`${this.getLogPrefix()} PATCHED request: Adding userId "${userId}" to tools/call request`);
-
         const patchedMessage = {
           ...message,
           params: {
@@ -400,20 +388,10 @@ export class MCPConnection extends EventEmitter {
           }
         };
 
-        console.log(`🔧 ${this.getLogPrefix()} PATCHED request final message:`, JSON.stringify(patchedMessage, null, 2));
-        logger.debug(`${this.getLogPrefix()} PATCHED request final message:`, JSON.stringify(patchedMessage, null, 2));
-        logger.debug(`${this.getLogPrefix()} Calling original request with patched message...`);
-        const result = await originalRequest(patchedMessage, responseSchema, options);
-        console.log(`🔧 ${this.getLogPrefix()} PATCHED request completed successfully`);
-        logger.debug(`${this.getLogPrefix()} PATCHED request completed successfully`);
-        return result;
+        return await originalRequest(patchedMessage, responseSchema, options);
       }
 
-      console.log(`🔧 ${this.getLogPrefix()} Request not a tools/call or no userId, calling original without patch`);
-      logger.debug(`${this.getLogPrefix()} Request not a tools/call or no userId, calling original without patch`);
-      const result = await originalRequest(message, responseSchema, options);
-      logger.debug(`${this.getLogPrefix()} UNPATCHED request completed`);
-      return result;
+      return await originalRequest(message, responseSchema, options);
     };
   }
 

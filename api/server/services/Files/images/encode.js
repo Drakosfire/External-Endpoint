@@ -11,6 +11,7 @@ const {
 } = require('librechat-data-provider');
 const { getStrategyFunctions } = require('~/server/services/Files/strategies');
 const countTokens = require('~/server/utils/countTokens');
+const { logger } = require('~/config');
 
 /**
  * Converts a readable stream to a base64 encoded string.
@@ -127,6 +128,56 @@ async function encodeAndFormat(req, files, endpoint, mode) {
       }
 
       result.text += `${!result.text ? 'Attached document(s):\n```md' : '\n\n---\n\n'}# "${file.filename}"\n${limitedText}\n`;
+    }
+
+    // Handle URL sources from MMS media
+    if ((source === 'url' || source === 'base64') && file.filepath) {
+      // Check if this is a data URL (base64 encoded)
+      if (file.filepath.startsWith('data:')) {
+        // Extract base64 data from data URL
+        const dataUrlMatch = file.filepath.match(/^data:([^;]+);base64,(.+)$/);
+        if (dataUrlMatch && file.height) {
+          const base64Data = dataUrlMatch[2];
+          logger.info(`[Encode] Processing base64 data URL from MMS: ${file.filepath.substring(0, 50)}...`);
+          promises.push([file, base64Data]);
+          continue;
+        } else {
+          logger.warn(`[Encode] Invalid or non-image data URL: ${file.filepath.substring(0, 100)}...`);
+          promises.push([file, null]);
+          continue;
+        }
+      }
+      // Handle regular HTTP/HTTPS URLs
+      else if (file.filepath.startsWith('http')) {
+        // For URL sources, process the URL directly
+        if (file.height && base64Only.has(endpoint)) {
+          // Convert URL to base64 for providers that require it
+          try {
+            logger.info(`[Encode] Converting image URL to base64: ${file.filepath.substring(0, 100)}...`);
+            const imageBase64 = await fetchImageToBase64(file.filepath);
+            promises.push([file, imageBase64]);
+            logger.info(`[Encode] Successfully converted URL to base64`);
+          } catch (error) {
+            logger.error(`[Encode] Failed to fetch image from URL ${file.filepath}:`, error);
+            promises.push([file, file.filepath]); // Fallback to URL
+          }
+          continue;
+        } else if (file.height) {
+          // For providers that accept URLs, pass the URL directly
+          logger.info(`[Encode] Passing URL directly to ${endpoint}: ${file.filepath.substring(0, 100)}...`);
+          promises.push([file, file.filepath]);
+          continue;
+        } else {
+          // Non-image URL content
+          promises.push([file, null]);
+          continue;
+        }
+      } else {
+        // Invalid URL format
+        logger.warn(`[Encode] Invalid URL format: ${file.filepath.substring(0, 100)}...`);
+        promises.push([file, null]);
+        continue;
+      }
     }
 
     if (!file.height) {

@@ -910,37 +910,14 @@ export class MCPManager {
         );
       }
 
-      // ===== COMPREHENSIVE LIBRECHAT TOOL CALL LOGGING =====
-      logger.debug(`${logPrefix}[${toolName}] ===== LIBRECHAT TOOL CALL DEBUG =====`);
-      logger.debug(`${logPrefix}[${toolName}] User object:`, {
-        userExists: !!user,
-        userId: user?.id || 'NO_USER_ID',
-        userIdType: typeof user?.id,
-        userKeys: user ? Object.keys(user) : 'NO_USER'
-      });
-      logger.debug(`${logPrefix}[${toolName}] Final userId resolved: "${userId}" (type: ${typeof userId})`);
-      logger.debug(`${logPrefix}[${toolName}] Tool arguments:`, toolArguments);
-      logger.debug(`${logPrefix}[${toolName}] Options passed:`, options);
-
       const finalParams = {
         name: toolName,
         arguments: toolArguments,
         ...(userId && { userId }), // Add userId to params if available
       };
 
-      logger.debug(`${logPrefix}[${toolName}] Final request params:`, JSON.stringify(finalParams, null, 2));
-      logger.debug(`${logPrefix}[${toolName}] Request has userId: ${!!finalParams.userId}`);
-      logger.debug(`${logPrefix}[${toolName}] About to send MCP request...`);
-
       // Use client.callTool instead of client.request to trigger the userId patch
       const result = await connection.client.callTool(finalParams);
-
-      logger.debug(`${logPrefix}[${toolName}] ===== MCP REQUEST COMPLETED =====`);
-      logger.debug(`${logPrefix}[${toolName}] Result received:`, {
-        hasResult: !!result,
-        resultKeys: result ? Object.keys(result) : 'NO_RESULT',
-        contentLength: (result as any)?.content?.length || 0
-      });
 
       if (userId) {
         this.updateUserLastActivity(userId);
