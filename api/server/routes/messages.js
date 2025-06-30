@@ -23,6 +23,24 @@ const { addClient, removeClient } = require('~/server/sseClients');
 
 const router = express.Router();
 
+// Helper function for MMS media processing
+function getExtensionFromMimeType(mimeType) {
+  const mimeToExt = {
+    'image/jpeg': 'jpg',
+    'image/jpg': 'jpg',
+    'image/png': 'png',
+    'image/gif': 'gif',
+    'image/webp': 'webp',
+    'video/mp4': 'mp4',
+    'video/mpeg': 'mpg',
+    'audio/mpeg': 'mp3',
+    'audio/wav': 'wav',
+    'application/pdf': 'pdf',
+    'text/plain': 'txt'
+  };
+  return mimeToExt[mimeType] || 'bin';
+}
+
 // Apply JWT auth to all routes except external messages
 router.use((req, res, next) => {
   // For external messages, use API key validation instead of JWT
@@ -268,7 +286,102 @@ router.post('/:conversationId', validateMessageReq, async (req, res) => {
       agent_id: message.metadata?.agent_id,
     });
 
+    // Log external message structure (production-ready)
     if (message.role === 'external') {
+      logger.info('[Messages] External message received:', {
+        from: message.from,
+        hasMedia: !!message.media,
+        mediaCount: Array.isArray(message.media) ? message.media.length : 0,
+        messageType: message.metadata?.messageType || 'SMS'
+      });
+    }
+
+    if (message.role === 'external') {
+      // Process media if present  
+      if (message.media && Array.isArray(message.media) && message.media.length > 0) {
+        logger.debug('[External MMS] Processing media array with', message.media.length, 'items');
+      }
+
+      // Enhanced MMS media processing
+      let attachments = null;
+
+      // Check for new base64 attachment format (from updated SMS server)
+      if (message.attachments && Array.isArray(message.attachments) && message.attachments.length > 0) {
+        logger.info(`[MMS] Processing ${message.attachments.length} base64 attachment(s)`);
+
+        // Use the pre-processed attachments directly
+        attachments = message.attachments;
+      }
+      // Check if this is an MMS with media (legacy format)
+      else if (message.media && Array.isArray(message.media) && message.media.length > 0) {
+        try {
+          // Convert MMS media URLs to lightweight file objects
+          attachments = message.media
+            .filter(media => media.supported) // Only process supported media
+            .map((media, index) => ({
+              file_id: `mms_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+              filename: `mms_media_${index}.${getExtensionFromMimeType(media.type)}`,
+              type: media.type, // Note: SMS server sends 'type' not 'content_type'
+              filepath: media.url, // Use the URL directly as filepath
+              source: 'url', // Special source indicating this is a URL - matches encode.js handling
+              height: media.type.startsWith('image/') ? 1024 : null, // Realistic dimensions for proper processing
+              width: media.type.startsWith('image/') ? 1024 : null,
+              metadata: {
+                source: 'twilio_mms',
+                originalUrl: media.url,
+                messageType: 'MMS',
+                index: index
+              }
+            }));
+
+          logger.info('[External MMS] Created file objects for media:', {
+            count: attachments.length,
+            types: attachments.map(f => f.type),
+            conversationId: req.params.conversationId
+          });
+        } catch (error) {
+          logger.error('[External MMS] Failed to process media URLs:', error);
+          // Continue processing without media if conversion fails
+        }
+      }
+      // FALLBACK: Extract media URLs from text content if no media array
+      else if (message.content && message.content.includes('api.twilio.com')) {
+        try {
+          logger.info('[External MMS] No media array found, attempting to extract URLs from text');
+
+          // Extract Twilio media URLs from text content
+          const urlRegex = /(https:\/\/api\.twilio\.com\/[^\s\]]+)/g;
+          const urls = message.content.match(urlRegex);
+
+          if (urls && urls.length > 0) {
+            attachments = urls.map((url, index) => ({
+              file_id: `mms_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+              filename: `mms_media_${index}.jpg`, // Assume JPEG for now
+              type: 'image/jpeg', // Default to JPEG
+              filepath: url,
+              source: 'url',
+              height: 1, // Trigger image processing
+              width: 1,
+              metadata: {
+                source: 'twilio_mms_extracted',
+                originalUrl: url,
+                messageType: 'MMS',
+                index: index,
+                extractedFromText: true
+              }
+            }));
+
+            logger.info('[External MMS] Extracted media URLs from text:', {
+              count: attachments.length,
+              urls: urls,
+              conversationId: req.params.conversationId
+            });
+          }
+        } catch (error) {
+          logger.error('[External MMS] Failed to extract media URLs from text:', error);
+        }
+      }
+
       // Let the external client handle conversation creation
       const { initializeClient } = require('~/server/services/Endpoints/external/initialize');
 
@@ -292,7 +405,8 @@ router.post('/:conversationId', validateMessageReq, async (req, res) => {
         modelOptions: {
           model: message.metadata?.model || 'gpt-4o'
         },
-        conversationId: req.params.conversationId
+        conversationId: req.params.conversationId,
+        attachments: attachments // Pass media attachments
       };
 
       const { client } = await initializeClient({

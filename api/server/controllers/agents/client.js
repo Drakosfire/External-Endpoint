@@ -249,7 +249,12 @@ class AgentClient extends BaseClient {
       .trim();
 
     if (this.options.attachments) {
+      logger.info(`[AgentClient] Processing attachments in buildMessages`);
       const attachments = await this.options.attachments;
+      logger.info(`[AgentClient] Resolved attachments: count=${attachments?.length}`);
+      if (attachments?.[0]) {
+        logger.info(`[AgentClient] First attachment: file_id=${attachments[0].file_id}, type=${attachments[0].type}, source=${attachments[0].source}`);
+      }
 
       if (this.message_file_map) {
         this.message_file_map[orderedMessages[orderedMessages.length - 1].messageId] = attachments;
@@ -259,12 +264,16 @@ class AgentClient extends BaseClient {
         };
       }
 
+      logger.info(`[AgentClient] Calling addImageURLs for vision processing`);
       const files = await this.addImageURLs(
         orderedMessages[orderedMessages.length - 1],
         attachments,
       );
+      logger.info(`[AgentClient] addImageURLs completed, files processed: ${files?.length}`);
 
       this.options.attachments = files;
+    } else {
+      logger.info(`[AgentClient] No attachments found in buildMessages`);
     }
 
     /** Note: Bedrock uses legacy RAG API handling */
