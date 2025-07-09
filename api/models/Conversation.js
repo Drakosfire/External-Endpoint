@@ -95,6 +95,8 @@ module.exports = {
         logger.debug(`[saveConvo] ${metadata.context}`);
       }
 
+
+
       const messages = await getMessages({ conversationId }, '_id');
       const update = { ...convo, messages, user: req.user.id };
 
@@ -107,7 +109,10 @@ module.exports = {
           updateHasMetadata: !!update.metadata,
           updateMetadataKeys: update.metadata ? Object.keys(update.metadata) : [],
           convoMetadataPhoneNumber: convo.metadata?.phoneNumber,
-          updateMetadataPhoneNumber: update.metadata?.phoneNumber
+          updateMetadataPhoneNumber: update.metadata?.phoneNumber,
+          messagesLength: messages.length,
+          updateKeysLength: Object.keys(update).length,
+          updateKeys: Object.keys(update)
         });
       }
 
