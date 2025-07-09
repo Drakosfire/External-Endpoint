@@ -912,17 +912,19 @@ class BaseClient {
       return { message: savedMessage };
     }
 
+    const existingConvo =
+      this.fetchedConvo === true
+        ? null
+        : await getConvo(this.options?.req?.user?.id, message.conversationId);
+
     const fieldsToKeep = {
       conversationId: message.conversationId,
       endpoint: this.options.endpoint,
       endpointType: this.options.endpointType,
       ...endpointOptions,
+      // CRITICAL FIX: Preserve existing metadata to prevent SMS metadata loss
+      ...(existingConvo?.metadata && { metadata: existingConvo.metadata }),
     };
-
-    const existingConvo =
-      this.fetchedConvo === true
-        ? null
-        : await getConvo(this.options?.req?.user?.id, message.conversationId);
 
     const unsetFields = {};
     const exceptions = new Set(['spec', 'iconURL']);
