@@ -4,7 +4,8 @@ const BaseClient = require('~/app/clients/BaseClient');
 const { logger } = require('~/config');
 const { v4: uuidv4 } = require('uuid');
 const { saveMessage, getUserById, saveConvo } = require('~/models');
-const { getConvo, Conversation } = require('~/models/Conversation');
+const { getConvo } = require('~/models/Conversation');
+const { Conversation } = require('~/db/models');
 const { broadcastToUsers, broadcastNewConversation } = require('~/server/sseClients');
 const { SystemRoles } = require('librechat-data-provider');
 const { ObjectId } = require('mongodb');
@@ -564,41 +565,108 @@ class ExternalClient extends BaseClient {
 
     async findExistingSMSConversation(phoneNumber) {
         try {
-            logger.debug('[ExternalClient] Searching for existing SMS conversations:', {
-                userId: this.user.toString(),
-                phoneNumber: phoneNumber,
-                searchCriteria: {
-                    'metadata.phoneNumber': phoneNumber,
-                    'metadata.source': 'sms'
-                }
+            logger.info(`[ExternalClient] Searching for existing SMS conversation: ${phoneNumber}`);
+
+            // CRITICAL FIX: User IDs are stored as STRINGS in the database, not ObjectIds!
+            let searchUserId = this.user;
+
+            // DEBUG: Check user type and format
+            logger.debug(`[ExternalClient] User type detection:`, {
+                user: this.user,
+                userType: typeof this.user,
+                isBuffer: this.user instanceof Buffer,
+                isString: typeof this.user === 'string',
+                isObjectId: this.user instanceof ObjectId,
+                constructor: this.user?.constructor?.name
             });
 
-            // Search for SMS conversations for this phone number
-            // Use direct Conversation model query since getConvo doesn't support metadata search
-            const existingConversations = await ConversationModel.find({
-                user: this.user,
+            // Convert to string for database search (user IDs are stored as strings)
+            if (this.user instanceof Buffer) {
+                // Convert Buffer to hex string
+                searchUserId = this.user.toString('hex');
+                logger.debug(`[ExternalClient] Converted Buffer to string:`, {
+                    original: this.user,
+                    converted: searchUserId,
+                    convertedType: typeof searchUserId
+                });
+            } else if (this.user instanceof ObjectId) {
+                // Convert ObjectId to string
+                searchUserId = this.user.toString();
+                logger.debug(`[ExternalClient] Converted ObjectId to string:`, {
+                    original: this.user,
+                    converted: searchUserId,
+                    convertedType: typeof searchUserId
+                });
+            } else if (typeof this.user === 'string') {
+                // Already a string - perfect
+                searchUserId = this.user;
+                logger.debug(`[ExternalClient] User is already string:`, {
+                    user: this.user,
+                    type: typeof this.user
+                });
+            } else {
+                // Try to convert to string
+                logger.debug(`[ExternalClient] Converting unknown user type to string:`, {
+                    user: this.user,
+                    userType: typeof this.user,
+                    constructor: this.user?.constructor?.name
+                });
+                searchUserId = this.user.toString();
+                logger.debug(`[ExternalClient] Converted to string:`, {
+                    original: this.user,
+                    converted: searchUserId
+                });
+            }
+
+            // DEBUG: Log search criteria
+            logger.debug(`[ExternalClient] Search criteria:`, {
+                user: searchUserId,
+                userType: typeof searchUserId,
+                phoneNumber: phoneNumber,
+                phoneNumberType: typeof phoneNumber
+            });
+
+            // Primary search: Look for conversations with exact metadata match
+            const existingConversations = await Conversation.find({
+                user: searchUserId,
                 'metadata.phoneNumber': phoneNumber,
                 'metadata.source': 'sms'
             }).lean();
 
-            logger.debug('[ExternalClient] Existing conversation search results:', {
-                found: !!existingConversations,
-                count: existingConversations ? existingConversations.length : 0,
-                isArray: Array.isArray(existingConversations)
-            });
+            logger.info(`[ExternalClient] Primary search found ${existingConversations.length} conversations`);
 
-            if (existingConversations && existingConversations.length > 0) {
-                // Sort by most recent and get the latest one
+            // DEBUG: If we found conversations, log their metadata
+            if (existingConversations.length > 0) {
+                logger.debug(`[ExternalClient] Found conversations metadata:`,
+                    existingConversations.map(c => ({
+                        conversationId: c.conversationId,
+                        user: c.user,
+                        metadata: c.metadata,
+                        updatedAt: c.updatedAt
+                    }))
+                );
+            } else {
+                // DEBUG: Let's check if there are ANY conversations for this user
+                const userConversations = await Conversation.find({ user: searchUserId }).lean();
+                logger.debug(`[ExternalClient] User has ${userConversations.length} total conversations`);
+
+                if (userConversations.length > 0) {
+                    logger.debug(`[ExternalClient] Sample user conversation metadata:`,
+                        userConversations.slice(0, 3).map(c => ({
+                            conversationId: c.conversationId,
+                            hasMetadata: !!c.metadata,
+                            metadata: c.metadata
+                        }))
+                    );
+                }
+            }
+
+            if (existingConversations.length > 0) {
                 const recentConversation = existingConversations.sort((a, b) =>
                     new Date(b.updatedAt) - new Date(a.updatedAt)
                 )[0];
 
-                logger.info('[ExternalClient] Found existing SMS conversation:', {
-                    conversationId: recentConversation.conversationId,
-                    phoneNumber: phoneNumber,
-                    lastUpdated: recentConversation.updatedAt,
-                    ageInDays: Math.floor((Date.now() - new Date(recentConversation.updatedAt)) / (24 * 60 * 60 * 1000))
-                });
+                logger.info(`[ExternalClient] Using existing conversation: ${recentConversation.conversationId}`);
 
                 // Update client properties from existing conversation
                 this.endpoint = recentConversation.endpoint;
@@ -607,7 +675,84 @@ class ExternalClient extends BaseClient {
                 return recentConversation;
             }
 
-            logger.info(`[ExternalClient] No active SMS conversation found for phone number: ${phoneNumber}`);
+            // Secondary search: Look for any conversation with phone number in metadata (broader search)
+            const anyWithPhoneInMetadata = await Conversation.find({
+                user: searchUserId,
+                $or: [
+                    { 'metadata.phoneNumber': phoneNumber },
+                    { 'metadata.from': phoneNumber }
+                ]
+            }).lean();
+
+            logger.info(`[ExternalClient] Secondary search found ${anyWithPhoneInMetadata.length} conversations`);
+
+            // DEBUG: If secondary search found conversations, log their metadata
+            if (anyWithPhoneInMetadata.length > 0) {
+                logger.debug(`[ExternalClient] Secondary search found conversations:`,
+                    anyWithPhoneInMetadata.map(c => ({
+                        conversationId: c.conversationId,
+                        user: c.user,
+                        metadata: c.metadata,
+                        updatedAt: c.updatedAt
+                    }))
+                );
+            }
+
+            if (anyWithPhoneInMetadata.length > 0) {
+                const mostRecent = anyWithPhoneInMetadata.sort((a, b) =>
+                    new Date(b.updatedAt) - new Date(a.updatedAt)
+                )[0];
+
+                logger.info(`[ExternalClient] Reusing and updating conversation: ${mostRecent.conversationId}`);
+
+                // Update the conversation metadata to match our current expectations
+                await Conversation.findOneAndUpdate(
+                    { conversationId: mostRecent.conversationId },
+                    {
+                        $set: {
+                            'metadata.phoneNumber': phoneNumber,
+                            'metadata.source': 'sms',
+                            'metadata.lastMessage': new Date()
+                        }
+                    }
+                );
+
+                return mostRecent;
+            }
+
+            logger.info(`[ExternalClient] No existing SMS conversation found for: ${phoneNumber}`);
+
+            // DEBUG: Let's do a final check with different user ID formats to see if that's the issue
+            const userIdString = typeof this.user === 'object' ? this.user.toString() : this.user;
+            logger.debug(`[ExternalClient] Testing user ID format variations:`, {
+                originalUser: this.user,
+                originalUserType: typeof this.user,
+                userIdString: userIdString,
+                userIdStringType: typeof userIdString
+            });
+
+            // Try a more flexible search to see if user ID format is the issue
+            const flexibleSearch = await Conversation.find({
+                $or: [
+                    { user: searchUserId },
+                    { user: userIdString },
+                    { user: this.user }
+                ],
+                'metadata.phoneNumber': phoneNumber
+            }).lean();
+
+            if (flexibleSearch.length > 0) {
+                logger.warn(`[ExternalClient] FOUND CONVERSATIONS with flexible user search! This suggests user ID format mismatch.`);
+                logger.debug(`[ExternalClient] Flexible search results:`,
+                    flexibleSearch.map(c => ({
+                        conversationId: c.conversationId,
+                        user: c.user,
+                        userType: typeof c.user,
+                        metadata: c.metadata
+                    }))
+                );
+            }
+
         } catch (error) {
             logger.warn('[ExternalClient] Error finding existing SMS conversation:', error);
         }
@@ -711,15 +856,10 @@ class ExternalClient extends BaseClient {
         });
 
         try {
-            logger.debug('[ExternalClient] About to save conversation with data:', {
-                conversationId: newConversation.conversationId,
-                hasMetadata: !!newConversation.metadata,
-                metadataKeys: newConversation.metadata ? Object.keys(newConversation.metadata) : [],
-                metadataPhoneNumber: newConversation.metadata?.phoneNumber,
-                metadataSource: newConversation.metadata?.source
-            });
+            logger.info(`[ExternalClient] Creating ${source} conversation: ${newConversation.conversationId}`);
 
-            logger.debug('[ExternalClient] Calling saveConvo with metadata context');
+
+
             const conversation = await saveConvo(
                 req,
                 newConversation,
@@ -729,36 +869,11 @@ class ExternalClient extends BaseClient {
                 }
             );
 
-            logger.debug('[ExternalClient] saveConvo returned:', {
-                hasConversation: !!conversation,
-                conversationId: conversation?.conversationId,
-                hasMetadata: !!conversation?.metadata,
-                metadataKeys: conversation?.metadata ? Object.keys(conversation.metadata) : []
-            });
-
             if (!conversation) {
                 throw new Error('Failed to create conversation');
             }
 
-            logger.info('[ExternalClient] Successfully created conversation:', {
-                conversationId: conversation.conversationId,
-                endpoint: conversation.endpoint,
-                agent_id: conversation.agent_id
-            });
-
-            // Verify metadata was saved properly
-            const savedConvo = await getConvo(null, conversation.conversationId);
-            if (savedConvo) {
-                logger.info('[ExternalClient] Verified saved conversation metadata:', {
-                    conversationId: savedConvo.conversationId,
-                    hasMetadata: !!savedConvo.metadata,
-                    phoneNumber: savedConvo.metadata?.phoneNumber,
-                    source: savedConvo.metadata?.source,
-                    metadataKeys: savedConvo.metadata ? Object.keys(savedConvo.metadata) : []
-                });
-            } else {
-                logger.error('[ExternalClient] CRITICAL: Could not retrieve saved conversation for verification');
-            }
+            logger.info(`[ExternalClient] Successfully created conversation: ${conversation.conversationId}`);
 
             // Broadcast the new conversation
             const userIdString = conversation.user.toString();
@@ -826,7 +941,9 @@ class ExternalClient extends BaseClient {
 
         // Try to find existing conversation for this phone number
         const existingSMSConversation = await this.findExistingSMSConversation(phoneNumber);
+
         if (existingSMSConversation) {
+            logger.info(`[ExternalClient] Reusing existing SMS conversation: ${existingSMSConversation.conversationId}`);
             return existingSMSConversation;
         }
 

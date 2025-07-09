@@ -328,69 +328,8 @@ const validateExternalMessage = async (req, res, next) => {
             return res.status(403).json({ error: 'Invalid API key' });
         }
 
-        // Handle scheduled messages (no phone number required)
-        const isScheduledMessage = req.body.metadata?.source === 'scheduled' ||
-            req.body.metadata?.source === 'scheduled-task' ||
-            req.body.metadata?.type === 'scheduled' ||
-            req.body.metadata?.taskName;
-
-        if (isScheduledMessage) {
-            logger.debug('[validateExternalMessage] Scheduled message detected, skipping phone validation');
-
-            // Extract conversationId from various sources
-            let conversationId = req.body.conversationId;
-            if (!conversationId && req.path) {
-                const pathMatch = req.path.match(/\/api\/messages\/([a-f0-9-]{36})/i);
-                if (pathMatch) {
-                    conversationId = pathMatch[1];
-                }
-            }
-            if (!conversationId && req.url) {
-                const urlMatch = req.url.match(/\/api\/messages\/([a-f0-9-]{36})/i);
-                if (urlMatch) {
-                    conversationId = urlMatch[1];
-                }
-            }
-
-            if (!conversationId) {
-                logger.error('[validateExternalMessage] Conversation ID required for scheduled messages');
-                return res.status(400).json({ error: 'Conversation ID required for scheduled messages' });
-            }
-
-            // Check if this is a placeholder conversation ID
-            if (isPlaceholderConversationId(conversationId)) {
-                logger.error('[validateExternalMessage] Placeholder conversation ID not allowed for scheduled messages:', conversationId);
-                return res.status(400).json({ error: 'Scheduled messages require a real conversation ID, not a placeholder' });
-            }
-
-            try {
-                const conversation = await getConvo(null, conversationId);
-                if (!conversation) {
-                    logger.error('[validateExternalMessage] Conversation not found for scheduled message:', conversationId);
-                    return res.status(404).json({ error: 'Conversation not found for scheduled message' });
-                }
-
-                const user = await findUser({ _id: conversation.user });
-                if (!user) {
-                    logger.error('[validateExternalMessage] User not found for conversation:', conversation.user);
-                    return res.status(404).json({ error: 'User not found for conversation' });
-                }
-
-                logger.info('[validateExternalMessage] Using conversation owner for scheduled message:', {
-                    conversationId,
-                    userId: user._id.toString(),
-                    taskName: req.body.metadata?.taskName
-                });
-
-                req.isServiceRequest = true;
-                req.user = user;
-                req.isScheduledMessage = true;
-                return next();
-            } catch (error) {
-                logger.error('[validateExternalMessage] Error processing scheduled message:', error);
-                return res.status(500).json({ error: 'Failed to process scheduled message' });
-            }
-        }
+        // Note: Scheduled messages now flow through regular SMS pipeline
+        // No special handling needed - they use synthetic phone numbers
 
         // Handle agent requests (basic validation)
         if (req.body.metadata?.endpoint === 'agents') {
