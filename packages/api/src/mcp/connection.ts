@@ -304,7 +304,8 @@ export class MCPConnection extends EventEmitter {
         const patchedRequest = {
           ...request,
           arguments: request.arguments || {},
-          ...(userId && { userId }) // Add userId to top-level params
+          // Only add connection userId if request doesn't already have one
+          ...(userId && !request.userId && { userId }) // Add userId to top-level params
         };
 
         logger.debug(`${this.getLogPrefix()} PATCHED callTool final params:`, JSON.stringify({

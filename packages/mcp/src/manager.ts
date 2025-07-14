@@ -9,6 +9,12 @@ import { CONSTANTS } from './enum';
 
 export interface CallToolOptions extends RequestOptions {
   userId?: string;
+  scheduledTaskContext?: {
+    originalUserId?: string;
+    sharedWith?: string[];
+    contextType?: string;
+    tenantId?: string;
+  };
 }
 
 export class MCPManager {
@@ -421,7 +427,11 @@ export class MCPManager {
     options?: CallToolOptions;
   }): Promise<t.FormattedToolResponse> {
     let connection: MCPConnection | undefined;
-    const { userId, ...callOptions } = options ?? {};
+    const { userId, scheduledTaskContext, ...callOptions } = options ?? {};
+
+    // Determine the effective user ID for MCP server operations
+    const effectiveUserId = scheduledTaskContext?.originalUserId || userId;
+
     const logPrefix = userId ? `[MCP][User: ${userId}][${serverName}]` : `[MCP][${serverName}]`;
 
 
@@ -455,8 +465,32 @@ export class MCPManager {
         arguments: {
           ...toolArguments,
         },
-        ...(userId && { userId }), // Add userId to params if available
+        // Pass user context to MCP server
+        ...(effectiveUserId && { userId: effectiveUserId }),
+
+        // NEW: Pass scheduled task context if available
+        ...(scheduledTaskContext?.originalUserId && {
+          originalUserId: scheduledTaskContext.originalUserId
+        }),
+        ...(scheduledTaskContext?.sharedWith && {
+          sharedWith: scheduledTaskContext.sharedWith
+        }),
+        ...(scheduledTaskContext?.contextType && {
+          contextType: scheduledTaskContext.contextType
+        }),
+        ...(scheduledTaskContext?.tenantId && {
+          tenantId: scheduledTaskContext.tenantId
+        }),
       };
+
+      this.logger.debug(`${logPrefix} Calling tool with context:`, {
+        toolName,
+        currentUserId: userId,
+        effectiveUserId,
+        isScheduledTask: !!scheduledTaskContext?.originalUserId,
+        contextType: scheduledTaskContext?.contextType,
+        sharedWith: scheduledTaskContext?.sharedWith?.length || 0
+      });
 
       // CRITICAL: Use client.callTool to trigger userId patch in connection
       const result = await connection.client.callTool(requestParams);

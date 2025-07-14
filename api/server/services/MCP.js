@@ -184,6 +184,9 @@ async function createMCPTool({ req, res, toolKey, provider: _provider }) {
       // Ensure user object has proper structure for API Manager
       const userForMCP = config?.configurable?.user || { id: finalUserId };
 
+      // Extract scheduled task context from request
+      const scheduledTaskContext = req.scheduledTaskContext;
+
       const result = await mcpManager.callTool({
         user: userForMCP,  // API Manager expects user as first parameter
         serverName,
@@ -193,6 +196,14 @@ async function createMCPTool({ req, res, toolKey, provider: _provider }) {
         options: {
           userId: finalUserId,  // Use the resolved user ID
           signal: derivedSignal,
+
+          // NEW: Pass scheduled task context
+          scheduledTaskContext: scheduledTaskContext ? {
+            originalUserId: scheduledTaskContext.originalUserId,
+            sharedWith: scheduledTaskContext.sharedWith,
+            contextType: scheduledTaskContext.contextType,
+            tenantId: scheduledTaskContext.tenantId
+          } : undefined,
         },
         customUserVars,
         flowManager,
@@ -203,6 +214,13 @@ async function createMCPTool({ req, res, toolKey, provider: _provider }) {
         },
         oauthStart,
         oauthEnd,
+      });
+
+      logger.debug(`[MCP.js][${serverName}][${toolName}] Context passed:`, {
+        currentUser: finalUserId,
+        originalUser: scheduledTaskContext?.originalUserId,
+        isScheduledTask: !!scheduledTaskContext?.originalUserId,
+        contextType: scheduledTaskContext?.contextType
       });
 
       logger.debug(`[MCP.js][${serverName}][${toolName}] ===== CORE MANAGER RETURNED =====`);
