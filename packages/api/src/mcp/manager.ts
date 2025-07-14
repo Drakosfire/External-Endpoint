@@ -1,11 +1,12 @@
 import { logger } from '@librechat/data-schemas';
 import { CallToolResultSchema, ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
-import type { RequestOptions } from '@modelcontextprotocol/sdk/shared/protocol.js';
 import type { OAuthClientInformation } from '@modelcontextprotocol/sdk/shared/auth.js';
-import type { JsonSchemaType, MCPOptions, TUser } from 'librechat-data-provider';
+import type { RequestOptions } from '@modelcontextprotocol/sdk/shared/protocol.js';
 import type { TokenMethods } from '@librechat/data-schemas';
-import type { FlowStateManager } from '~/flow/manager';
+import type { TUser } from 'librechat-data-provider';
 import type { MCPOAuthTokens, MCPOAuthFlowMetadata } from './oauth/types';
+import type { FlowStateManager } from '~/flow/manager';
+import type { JsonSchemaType } from '~/types/zod';
 import type { FlowMetadata } from '~/flow/types';
 import type * as t from './types';
 import { CONSTANTS, isSystemUserId } from './enum';
@@ -13,6 +14,7 @@ import { MCPOAuthHandler } from './oauth/handler';
 import { MCPTokenStorage } from './oauth/tokens';
 import { formatToolContent } from './parsers';
 import { MCPConnection } from './connection';
+import { processMCPEnv } from '~/utils/env';
 
 // NEW: Add scheduled task context interface
 export interface CallToolOptions extends RequestOptions {
@@ -35,11 +37,6 @@ export class MCPManager {
   private userLastActivity: Map<string, number> = new Map();
   private readonly USER_CONNECTION_IDLE_TIMEOUT = 15 * 60 * 1000; // 15 minutes (TODO: make configurable)
   private mcpConfigs: t.MCPServers = {};
-  private processMCPEnv?: (
-    obj: MCPOptions,
-    user?: TUser,
-    customUserVars?: Record<string, string>,
-  ) => MCPOptions; // Store the processing function
   /** Store MCP server instructions */
   private serverInstructions: Map<string, string> = new Map();
 
@@ -57,14 +54,11 @@ export class MCPManager {
     mcpServers,
     flowManager,
     tokenMethods,
-    processMCPEnv,
   }: {
     mcpServers: t.MCPServers;
     flowManager: FlowStateManager<MCPOAuthTokens | null>;
     tokenMethods?: TokenMethods;
-    processMCPEnv?: (obj: MCPOptions) => MCPOptions;
   }): Promise<void> {
-    this.processMCPEnv = processMCPEnv; // Store the function
     this.mcpConfigs = mcpServers;
 
     if (!flowManager) {
@@ -79,7 +73,7 @@ export class MCPManager {
     const connectionResults = await Promise.allSettled(
       entries.map(async ([serverName, _config], i) => {
         /** Process env for app-level connections */
-        const config = this.processMCPEnv ? this.processMCPEnv(_config) : _config;
+        const config = processMCPEnv(_config);
 
         /** Existing tokens for system-level connections */
         let tokens: MCPOAuthTokens | null = null;
@@ -455,9 +449,7 @@ export class MCPManager {
       );
     }
 
-    if (this.processMCPEnv) {
-      config = { ...(this.processMCPEnv(config, user, customUserVars) ?? {}) };
-    }
+    config = { ...(processMCPEnv(config, user, customUserVars) ?? {}) };
     /** If no in-memory tokens, tokens from persistent storage */
     let tokens: MCPOAuthTokens | null = null;
     if (tokenMethods?.findToken) {
@@ -936,7 +928,7 @@ export class MCPManager {
         this.updateUserLastActivity(userId);
       }
       this.checkIdleConnections();
-      return formatToolContent(result, provider);
+      return formatToolContent(result as t.MCPToolCallResponse, provider);
     } catch (error) {
       // Log with context and re-throw or handle as needed
       logger.error(`${logPrefix}[${toolName}] Tool call failed`, error);
