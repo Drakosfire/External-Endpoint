@@ -14,6 +14,17 @@ import { MCPTokenStorage } from './oauth/tokens';
 import { formatToolContent } from './parsers';
 import { MCPConnection } from './connection';
 
+// NEW: Add scheduled task context interface
+export interface CallToolOptions extends RequestOptions {
+  userId?: string;
+  scheduledTaskContext?: {
+    originalUserId?: string;
+    sharedWith?: string[];
+    contextType?: string;
+    tenantId?: string;
+  };
+}
+
 export class MCPManager {
   private static instance: MCPManager | null = null;
   /** App-level connections initialized at startup */
@@ -838,7 +849,7 @@ export class MCPManager {
     toolName: string;
     provider: t.Provider;
     toolArguments?: Record<string, unknown>;
-    options?: RequestOptions;
+    options?: CallToolOptions;
     tokenMethods?: TokenMethods;
     customUserVars?: Record<string, string>;
     flowManager: FlowStateManager<MCPOAuthTokens | null>;
@@ -848,6 +859,11 @@ export class MCPManager {
     /** User-specific connection */
     let connection: MCPConnection | undefined;
     const userId = user?.id;
+    const { scheduledTaskContext, ...callOptions } = options ?? {};
+
+    // Determine the effective user ID for MCP server operations
+    const effectiveUserId = scheduledTaskContext?.originalUserId || userId;
+
     const logPrefix = userId ? `[MCP][User: ${userId}][${serverName}]` : `[MCP][${serverName}]`;
 
     try {
@@ -886,8 +902,32 @@ export class MCPManager {
       const finalParams = {
         name: toolName,
         arguments: toolArguments,
-        ...(userId && { userId }), // Add userId to params if available
+        // Pass user context to MCP server
+        ...(effectiveUserId && { userId: effectiveUserId }),
+
+        // NEW: Pass scheduled task context if available
+        ...(scheduledTaskContext?.originalUserId && {
+          originalUserId: scheduledTaskContext.originalUserId
+        }),
+        ...(scheduledTaskContext?.sharedWith && {
+          sharedWith: scheduledTaskContext.sharedWith
+        }),
+        ...(scheduledTaskContext?.contextType && {
+          contextType: scheduledTaskContext.contextType
+        }),
+        ...(scheduledTaskContext?.tenantId && {
+          tenantId: scheduledTaskContext.tenantId
+        }),
       };
+
+      logger.debug(`${logPrefix} Calling tool with context:`, {
+        toolName,
+        currentUserId: userId,
+        effectiveUserId,
+        isScheduledTask: !!scheduledTaskContext?.originalUserId,
+        contextType: scheduledTaskContext?.contextType,
+        sharedWith: scheduledTaskContext?.sharedWith?.length || 0
+      });
 
       // Use client.callTool instead of client.request to trigger the userId patch
       const result = await connection.client.callTool(finalParams);

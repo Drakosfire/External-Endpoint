@@ -392,6 +392,21 @@ const validateExternalMessage = async (req, res, next) => {
             usePlaceholderConversationId: conversationIdFromUrl ? isPlaceholderConversationId(conversationIdFromUrl) : false
         };
 
+        // NEW: Extract user context from scheduled task metadata
+        if (req.body.metadata) {
+            req.scheduledTaskContext = {
+                isScheduledTask: req.body.metadata.source === 'scheduled',
+                originalUserId: req.body.metadata.originalUserId,
+                sharedWith: req.body.metadata.sharedWith || [],
+                contextType: req.body.metadata.contextType || 'user',
+                tenantId: req.body.metadata.tenantId,
+                taskId: req.body.metadata.taskId,
+                taskName: req.body.metadata.taskName
+            };
+
+            logger.debug('[validateExternalMessage] Extracted scheduled task context:', req.scheduledTaskContext);
+        }
+
         logger.debug('[validateExternalMessage] SMS user validation complete', {
             userId: user._id.toString(),
             phoneNumber: phoneNumber,

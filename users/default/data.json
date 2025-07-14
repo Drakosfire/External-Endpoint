@@ -1,0 +1,114 @@
+{
+  "userId": "default",
+  "data": {
+    "tasks": [
+      {
+        "id": "5ee15ad4-4501-4fce-95e4-53692cc1ef82",
+        "name": "6AM Daily Calendar & Todoodle Update for Alan",
+        "description": "1. Use google calendar tools to check Stef and Al calendar for the day. 2. Use the todoodles get_web_ui tool to generate a link. 3. Send SMS to Alan (9709788817) with calendar summary and the link.",
+        "schedule": {
+          "type": "daily",
+          "time": "06:00"
+        },
+        "message": "Morning update! Here’s today’s events and your todoodles web UI link.",
+        "enabled": true,
+        "status": "scheduled",
+        "createdAt": "2025-06-28T22:08:32.241Z",
+        "updatedAt": "2025-06-30T23:48:40.911Z",
+        "totalRuns": 1,
+        "successfulRuns": 1,
+        "failedRuns": 0,
+        "nextRun": "2025-07-01T12:00:00.000Z",
+        "lastRun": "2025-06-30T12:00:00.003Z"
+      },
+      {
+        "id": "974f70b8-8b6e-4385-b14b-889c47771f3f",
+        "name": "Weekday Brain Break Meditate SMS for Alan",
+        "description": "Send Alan an SMS at 10am Monday-Friday reminding him to take a brain break and meditate.",
+        "schedule": {
+          "type": "daily",
+          "time": "10:00",
+          "weekdaysOnly": true
+        },
+        "message": "Brain break! Time to meditate.",
+        "enabled": true,
+        "status": "scheduled",
+        "createdAt": "2025-06-29T03:24:17.074Z",
+        "updatedAt": "2025-06-30T23:48:40.913Z",
+        "totalRuns": 1,
+        "successfulRuns": 1,
+        "failedRuns": 0,
+        "nextRun": "2025-07-01T16:00:00.000Z",
+        "lastRun": "2025-06-30T16:00:00.019Z"
+      },
+      {
+        "id": "c2034d30-e1f0-4be4-8997-329d55150dd4",
+        "name": "Water plants (Tuesday)",
+        "description": "Remind to water the plants every Tuesday at 8:30am.",
+        "schedule": {
+          "type": "weekly",
+          "dayOfWeek": "tuesday",
+          "time": "08:30"
+        },
+        "message": "Time to water the plants!",
+        "enabled": true,
+        "status": "scheduled",
+        "createdAt": "2025-06-29T03:25:01.730Z",
+        "updatedAt": "2025-06-30T23:48:40.914Z",
+        "totalRuns": 0,
+        "successfulRuns": 0,
+        "failedRuns": 0,
+        "nextRun": "2025-07-01T14:30:00.000Z"
+      },
+      {
+        "id": "780239e7-f23c-4f32-ad43-66e327963e65",
+        "name": "Fire test message in 30 seconds",
+        "description": "Scheduled task to test immediate firing logic.",
+        "schedule": {
+          "type": "once",
+          "delayMinutes": 0.5
+        },
+        "message": "Test scheduled firing!",
+        "enabled": true,
+        "status": "completed",
+        "createdAt": "2025-06-30T23:48:40.923Z",
+        "updatedAt": "2025-06-30T23:48:40.924Z",
+        "totalRuns": 1,
+        "successfulRuns": 1,
+        "failedRuns": 0,
+        "lastRun": "2025-06-30T23:49:10.946Z",
+        "nextRun": "2025-06-30T23:49:10.924Z"
+      },
+      {
+        "id": "459f82e0-c8d9-44f8-8595-b648fd21af1a",
+        "name": "SMS Alan in 30 seconds",
+        "description": "Send Alan an SMS message after 30 seconds",
+        "schedule": {
+          "type": "once",
+          "delayMinutes": 0.5
+        },
+        "message": "Hi Alan! This is your friendly reminder from Sizzek. 😊",
+        "enabled": true,
+        "status": "completed",
+        "createdAt": "2025-07-01T00:15:22.223Z",
+        "updatedAt": "2025-07-01T00:15:22.242Z",
+        "totalRuns": 1,
+        "successfulRuns": 1,
+        "failedRuns": 0,
+        "lastRun": "2025-07-01T00:15:52.263Z",
+        "nextRun": "2025-07-01T00:15:52.242Z"
+      }
+    ],
+    "metadata": {
+      "version": "2.0.0",
+      "lastBackup": "2025-07-01T00:15:52.397Z",
+      "totalTasks": 5,
+      "lastModified": "2025-07-01T00:15:52.397Z",
+      "storageType": "json"
+    }
+  },
+  "updatedAt": "2025-07-01T00:15:52.397Z",
+  "createdAt": "2025-07-01T00:15:52.397Z",
+  "version": "1.0.0",
+  "dataType": "json-storage"
+}
