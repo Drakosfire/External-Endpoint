@@ -80,6 +80,6 @@ const file: Schema<IMongoFile> = new Schema(
   },
 );
 
-fileSchema.index({ createdAt: 1, updatedAt: 1 });
+file.index({ createdAt: 1, updatedAt: 1 });
 
 export default file;
