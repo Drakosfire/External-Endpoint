@@ -124,8 +124,9 @@ export const generateCheckAccess = ({
         return next();
       }
 
+      const userId = (req.user as any)?.id ?? (req.user as any)?._id?.toString?.();
       logger.warn(
-        `[${permissionType}] Forbidden: "${req.originalUrl}" - Insufficient permissions for User ${req.user?.id}: ${permissions.join(', ')}`,
+        `[${permissionType}] Forbidden: "${req.originalUrl}" - Insufficient permissions for User ${userId}: ${permissions.join(', ')}`,
       );
       return res.status(403).json({ message: 'Forbidden: Insufficient permissions' });
     } catch (error) {
