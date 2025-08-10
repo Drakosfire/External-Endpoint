@@ -124,6 +124,7 @@ export const generateCheckAccess = ({
         return next();
       }
 
+      const userId = (req.user as any)?.id ?? (req.user as any)?._id?.toString?.();
       logger.warn(
         `[${permissionType}] Forbidden: "${req.originalUrl}" - Insufficient permissions for User ${(req.user as IUser)?.id}: ${permissions.join(', ')}`,
       );
