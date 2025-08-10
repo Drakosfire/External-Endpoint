@@ -1,7 +1,6 @@
 const undici = require('undici');
 const fetch = require('node-fetch');
 const passport = require('passport');
-const client = require('openid-client');
 const jwtDecode = require('jsonwebtoken/decode');
 const { HttpsProxyAgent } = require('https-proxy-agent');
 const { hashToken, logger } = require('@librechat/data-schemas');
@@ -14,6 +13,10 @@ const {
   findOpenIDUser,
   getBalanceConfig,
 } = require('@librechat/api');
+const { isEnabled, safeStringify, logHeaders } = require('@librechat/api');
+// Lazy ESM imports for ESM-only modules in a CommonJS file
+const importOpenIdClient = () => import('openid-client');
+const importOpenIdPassport = () => import('openid-client/passport');
 const { getStrategyFunctions } = require('~/server/services/Files/strategies');
 const { findUser, createUser, updateUser } = require('~/models');
 const { getAppConfig } = require('~/server/services/Config');
@@ -294,6 +297,22 @@ async function setupOpenId() {
   try {
     const shouldGenerateNonce = isEnabled(process.env.OPENID_GENERATE_NONCE);
 
+    const client = await importOpenIdClient();
+    const { Strategy: OpenIDStrategy } = await importOpenIdPassport();
+
+    class CustomOpenIDStrategy extends OpenIDStrategy {
+      currentUrl(req) {
+        const hostAndProtocol = process.env.DOMAIN_SERVER;
+        return new URL(`${hostAndProtocol}${req.originalUrl ?? req.url}`);
+      }
+      authorizationRequestParams(req, options) {
+        const params = super.authorizationRequestParams(req, options);
+        if (options?.state && !params.has('state')) {
+          params.set('state', options.state);
+        }
+        return params;
+      }
+    }
     /** @type {ClientMetadata} */
     const clientMetadata = {
       client_id: process.env.OPENID_CLIENT_ID,
