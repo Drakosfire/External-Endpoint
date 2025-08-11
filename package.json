@@ -149,9 +149,18 @@
   },
   "dependencies": {
     "@types/uuid": "^10.0.0",
+    "file-stream-rotator": "^1.0.0",
     "mongodb": "^6.17.0",
     "mongoose": "^8.16.3",
+    "oauth4webapi": "^3.6.2",
+    "redis": "^5.8.0",
+    "uid-safe": "^2.1.5",
     "uuid": "^11.1.0",
+    "winston": "^3.17.0",
+    "winston-daily-rotate-file": "^5.0.0",
+    "xml-crypto": "^6.1.2",
+    "xml-encryption": "^3.1.0",
+    "xml2js": "^0.6.2",
     "zod": "^3.25.56"
   }
 }

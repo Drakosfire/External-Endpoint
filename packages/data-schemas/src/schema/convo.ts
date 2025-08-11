@@ -89,7 +89,7 @@ const convoSchema: Schema<IConversation> = new Schema(
       type: [String],
     },
     metadata: {
-      type: mongoose.Schema.Types.Mixed,
+      type: Schema.Types.Mixed,
       meiliIndex: true,
     },
     expiredAt: {

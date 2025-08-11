@@ -1,4 +1,5 @@
-const { Keyv } = require('keyv');
+const KeyvModule = require('keyv');
+const Keyv = typeof KeyvModule === 'function' ? KeyvModule : KeyvModule.Keyv || KeyvModule.default;
 const uap = require('ua-parser-js');
 const { logger } = require('@librechat/data-schemas');
 const { ViolationTypes } = require('librechat-data-provider');
@@ -44,7 +45,7 @@ const banResponse = async (req, res) => {
  *
  * @returns {Promise<function|Object>} - Returns a Promise which when resolved calls next middleware if user or source IP is not banned. Otherwise calls `banResponse()` and sets ban details in `banCache`.
  */
-const checkBan = async (req, res, next = () => {}) => {
+const checkBan = async (req, res, next = () => { }) => {
   try {
     const { BAN_VIOLATIONS } = process.env ?? {};
 

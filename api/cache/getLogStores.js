@@ -1,5 +1,9 @@
 const { cacheConfig } = require('./cacheConfig');
-const { Keyv } = require('keyv');
+const KeyvModule = require('keyv');
+const Keyv = typeof KeyvModule === 'function' ? KeyvModule : KeyvModule.Keyv || KeyvModule.default;
+if (!Keyv) {
+  throw new Error('Failed to import Keyv');
+}
 const { CacheKeys, ViolationTypes, Time } = require('librechat-data-provider');
 const { logFile } = require('./keyvFiles');
 const keyvMongo = require('./keyvMongo');
