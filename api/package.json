@@ -58,6 +58,7 @@
     "@waylaidwanderer/fetch-event-source": "^3.0.1",
     "axios": "^1.8.2",
     "bcryptjs": "^2.4.3",
+    "compressible": "^2.0.18",
     "compression": "^1.8.1",
     "connect-redis": "^8.1.0",
     "cookie": "^0.7.2",

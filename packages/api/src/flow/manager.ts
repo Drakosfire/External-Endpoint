@@ -1,4 +1,4 @@
-import { Keyv } from 'keyv';
+import Keyv from 'keyv';
 import { logger } from '@librechat/data-schemas';
 import type { StoredDataNoRaw } from 'keyv';
 import type { FlowState, FlowMetadata, FlowManagerOptions } from './types';
@@ -14,7 +14,9 @@ export class FlowStateManager<T = unknown> {
     }
     const { ci = false, ttl } = options;
 
-    if (!ci && !(store instanceof Keyv)) {
+    const looksLikeKeyv =
+      store && typeof (store as any).get === 'function' && typeof (store as any).set === 'function';
+    if (!ci && !looksLikeKeyv) {
       throw new Error('Invalid store provided to FlowStateManager');
     }
 
