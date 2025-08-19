@@ -7,8 +7,10 @@ services:
     ports:
       - "${PORT}:${PORT}"
     depends_on:
-      - mongodb
-      - rag_api
+      mongodb:
+        condition: service_healthy
+      rag_api:
+        condition: service_started
     image: ghcr.io/danny-avila/librechat-dev:latest
     restart: always
     user: "${UID}:${GID}"
@@ -16,10 +18,12 @@ services:
       - "host.docker.internal:host-gateway"
     environment:
       - HOST=0.0.0.0
-      - MONGO_URI=mongodb://mongodb:27017/LibreChat
+      - MONGO_URI=mongodb://librechat_user:${MONGO_PASSWORD}@mongodb:27017/LibreChat?authSource=LibreChat
       - MEILI_HOST=http://meilisearch:7700
       - RAG_PORT=${RAG_PORT:-8000}
       - RAG_API_URL=http://rag_api:${RAG_PORT:-8000}
+    env_file:
+      - .env
     volumes:
       - type: bind
         source: ./.env
@@ -32,11 +36,25 @@ services:
     image: mongo
     restart: always
     user: "${UID}:${GID}"
-    ports:
-      - "27017:27017"
+    # ports:  # ⚠️ REMOVED - MongoDB should not be exposed to internet
+    #   - "27017:27017"
     volumes:
       - ./data-node:/data/db
-    command: mongod --noauth
+      - ./mongodb/init-scripts:/docker-entrypoint-initdb.d:ro
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=admin
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
+      - MONGO_INITDB_DATABASE=LibreChat
+      - MONGO_PASSWORD=${MONGO_PASSWORD}
+    env_file:
+      - .env
+    command: mongod --auth
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
   meilisearch:
     container_name: chat-meilisearch
     image: getmeili/meilisearch:v1.12.3
@@ -48,6 +66,10 @@ services:
       - MEILI_MASTER_KEY=${MEILI_MASTER_KEY}
     volumes:
       - ./meili_data_v1.12:/meili_data
+    security_opt:
+      - no-new-privileges:true
+    # ports:  # Uncomment only for debugging
+    #   - "127.0.0.1:7700:7700"
   vectordb:
     container_name: vectordb
     image: pgvector/pgvector:0.8.0-pg15-trixie
