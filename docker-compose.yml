@@ -11,7 +11,10 @@ services:
         condition: service_healthy
       rag_api:
         condition: service_started
-    image: ghcr.io/danny-avila/librechat-dev:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    # image: ghcr.io/danny-avila/librechat-dev:latest
     restart: always
     user: "${UID}:${GID}"
     extra_hosts:
