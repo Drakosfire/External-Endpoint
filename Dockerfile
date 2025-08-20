@@ -5,7 +5,7 @@ FROM node:20-alpine AS node
 
 # Install jemalloc
 RUN apk add --no-cache jemalloc
-RUN apk add --no-cache python3 py3-pip uv
+RUN apk add --no-cache python3 py3-pip
 
 # Set environment variable to use jemalloc
 ENV LD_PRELOAD=/usr/lib/libjemalloc.so.2
@@ -48,6 +48,7 @@ RUN mkdir -p /app/client/public/images /app/api/logs
 
 # Node API setup
 EXPOSE 3080
+ENV NODE_ENV=production
 ENV HOST=0.0.0.0
 CMD ["npm", "run", "backend"]
 
