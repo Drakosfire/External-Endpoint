@@ -5,7 +5,7 @@ FROM node:20-alpine AS node
 
 # Install jemalloc
 RUN apk add --no-cache jemalloc
-RUN apk add --no-cache python3 py3-pip uv
+RUN apk add --no-cache python3 py3-pip
 
 # Set environment variable to use jemalloc
 ENV LD_PRELOAD=/usr/lib/libjemalloc.so.2
@@ -29,16 +29,13 @@ RUN \
     npm config set fetch-retry-maxtimeout 600000 ; \
     npm config set fetch-retries 5 ; \
     npm config set fetch-retry-mintimeout 15000 ; \
-    npm install --no-audit; \
-    # React client build
-    NODE_OPTIONS="--max-old-space-size=2048" npm run frontend; \
-    npm prune --production; \
-    npm cache clean --force
-
-RUN mkdir -p /app/client/public/images /app/api/logs
+    npm ci; \
+    # Build client only (packages must be pre-built locally)
+    cd client && npm run build 
 
 # Node API setup
 EXPOSE 3080
+ENV NODE_ENV=production
 ENV HOST=0.0.0.0
 CMD ["npm", "run", "backend"]
 
