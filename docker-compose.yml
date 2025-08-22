@@ -19,14 +19,19 @@ services:
     user: "${UID}:${GID}"
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    command: ["sh", "/app/entrypoint.sh"]
     environment:
       - HOST=0.0.0.0
       - MONGO_URI=mongodb://librechat_user:${MONGO_PASSWORD}@mongodb:27017/LibreChat?authSource=LibreChat
       - MEILI_HOST=http://meilisearch:7700
       - RAG_PORT=${RAG_PORT:-8000}
       - RAG_API_URL=http://rag_api:${RAG_PORT:-8000}
+      # MCP Storage Configuration - Using shared .env.sizzek file
+      - MCP_STORAGE_TYPE=mongodb
+      - MCP_USER_BASED=true
     env_file:
       - .env
+      - ../Sizzek/config/.env.sizzek
     volumes:
       - type: bind
         source: ./.env
@@ -34,24 +39,30 @@ services:
       - ./images:/app/client/public/images
       - ./uploads:/app/uploads
       - ./logs:/app/api/logs
+      # MCP Server mounts - only the compiled binaries needed
+      - ../Sizzek/mcp-servers:/app/mcp-servers:ro
+      # MCP Server data directory - no longer needed (using MongoDB)
+      # - mcp_data:/app/mcp-data
+      # LibreChat configuration
+      - ./librechat.yaml:/app/librechat.yaml:ro
+      # Entrypoint script
+      - ./entrypoint.sh:/app/entrypoint.sh:ro
   mongodb:
     container_name: chat-mongodb
     image: mongo
     restart: always
-    user: "${UID}:${GID}"
-    # ports:  # ⚠️ REMOVED - MongoDB should not be exposed to internet
-    #   - "27017:27017"
+    user: "999:999"
+    ports:
+      - "127.0.0.1:27017:27017"  # ⚠️ SECURE: Only localhost can access MongoDB
     volumes:
-      - ./data-node:/data/db
+      - mongodb_data:/data/db
       - ./mongodb/init-scripts:/docker-entrypoint-initdb.d:ro
     environment:
-      - MONGO_INITDB_ROOT_USERNAME=admin
-      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
       - MONGO_INITDB_DATABASE=LibreChat
       - MONGO_PASSWORD=${MONGO_PASSWORD}
     env_file:
       - .env
-    command: mongod --auth
+    command: mongod --noauth
     healthcheck:
       test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
       interval: 10s
@@ -97,3 +108,5 @@ services:
 
 volumes:
   pgdata2:
+  mongodb_data:
+  # mcp_data:  # No longer needed (using MongoDB)
