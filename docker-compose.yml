@@ -49,6 +49,7 @@ services:
       - ./librechat.yaml:/app/librechat.yaml:ro
       # Entrypoint script
       - ./entrypoint.sh:/app/entrypoint.sh:ro
+      # MCP Server wrapper script
   mongodb:
     container_name: chat-mongodb
     image: mongo
