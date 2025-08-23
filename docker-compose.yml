@@ -26,7 +26,7 @@ services:
       - MEILI_HOST=http://meilisearch:7700
       - RAG_PORT=${RAG_PORT:-8000}
       - RAG_API_URL=http://rag_api:${RAG_PORT:-8000}
-      # MCP Storage Configuration - Using shared .env.sizzek file
+      # MCP Storage Configuration - Inherited by MCP servers
       - MCP_STORAGE_TYPE=mongodb
       - MCP_USER_BASED=true
     env_file:
@@ -41,6 +41,8 @@ services:
       - ./logs:/app/api/logs
       # MCP Server mounts - only the compiled binaries needed
       - ../Sizzek/mcp-servers:/app/mcp-servers:ro
+      # MCP Server environment file
+      - ../Sizzek/config/.env.sizzek:/app/.env.sizzek:ro
       # MCP Server data directory - no longer needed (using MongoDB)
       # - mcp_data:/app/mcp-data
       # LibreChat configuration
