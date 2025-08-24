@@ -6,6 +6,7 @@ services:
     container_name: LibreChat
     ports:
       - "${PORT}:${PORT}"
+      - "127.0.0.1:3081:3081"
     depends_on:
       mongodb:
         condition: service_healthy
