@@ -971,7 +971,7 @@ let storage: UserStorageInterface<KnowledgeGraph>;
 
 if (storageType === 'mongodb') {
   storage = StorageFactory.createUserStorage('mongodb', {
-    connectionString: process.env.MONGODB_CONNECTION_STRING || 'mongodb://mongodb:27017/LibreChat',
+    connectionString: process.env.MONGO_URI || 'mongodb://mongodb:27017/LibreChat',
     database: process.env.MONGODB_DATABASE || 'LibreChat',
     collection: process.env.MONGODB_COLLECTION || 'mcp_memory'
   }, defaultGraph);
@@ -1005,7 +1005,7 @@ mcpServers:
       MCP_USER_BASED: "true"       # Enable user-based storage
       
       # MongoDB configuration (when using mongodb storage)
-      MONGODB_CONNECTION_STRING: "mongodb://mongodb:27017/LibreChat"
+      MONGO_URI: "mongodb://mongodb:27017/LibreChat"
       MONGODB_DATABASE: "LibreChat"
       MONGODB_COLLECTION: "mcp_memory"
       
@@ -1029,7 +1029,7 @@ mcpServers:
       MCP_USER_BASED: "true"
       
       # MongoDB configuration
-      MONGODB_CONNECTION_STRING: "mongodb://mongodb:27017/LibreChat"
+      MONGO_URI: "mongodb://mongodb:27017/LibreChat"
       MONGODB_DATABASE: "LibreChat"
       MONGODB_COLLECTION: "mcp_todoodles"
       
@@ -1189,7 +1189,7 @@ services:
     environment:
       - MCP_STORAGE_TYPE=mongodb
       - MCP_USER_BASED=true
-      - MONGODB_CONNECTION_STRING=mongodb://mongodb:27017/LibreChat
+      - MONGO_URI=mongodb://mongodb:27017/LibreChat
       - MONGODB_DATABASE=LibreChat
       - MONGODB_COLLECTION=mcp_memory
     depends_on:
@@ -1202,7 +1202,7 @@ services:
     environment:
       - MCP_STORAGE_TYPE=mongodb
       - MCP_USER_BASED=true
-      - MONGODB_CONNECTION_STRING=mongodb://mongodb:27017/LibreChat
+      - MONGO_URI=mongodb://mongodb:27017/LibreChat
       - MONGODB_DATABASE=LibreChat
       - MONGODB_COLLECTION=mcp_todoodles
     depends_on:
@@ -1354,7 +1354,7 @@ function logDebug(message, data) {
 
 // Environment variable verification
 console.log('[MCP] Environment check:', {
-  MONGODB_CONNECTION_STRING: process.env.MONGODB_CONNECTION_STRING,
+  MONGO_URI: process.env.MONGO_URI,
   MONGODB_DATABASE: process.env.MONGODB_DATABASE,
   MCP_STORAGE_TYPE: process.env.MCP_STORAGE_TYPE
 });
