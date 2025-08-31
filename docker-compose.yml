@@ -7,6 +7,9 @@ services:
     ports:
       - "${PORT}:${PORT}"
       - "127.0.0.1:3081:3081"
+      # Expose ephemeral web UI port range for MCP servers (SECURED: localhost only)
+      - "127.0.0.1:12000-13000:12000-13000"
+      
     depends_on:
       mongodb:
         condition: service_healthy
@@ -30,9 +33,14 @@ services:
       # MCP Storage Configuration - Inherited by MCP servers
       - MCP_STORAGE_TYPE=mongodb
       - MCP_USER_BASED=true
+      # MCP Web UI Port Range Configuration
+      - MCP_WEB_UI_PORT_MIN=12000
+      - MCP_WEB_UI_PORT_MAX=13000
+      # MCP Web UI Configuration - Block specific ports (like Ollama on 11434)
+      - MCP_WEB_UI_BLOCKED_PORTS=11434
     env_file:
       - .env
-      - ../Sizzek/config/.env.sizzek
+      - ../Sizzek/config/.env.dev.sizzek
     volumes:
       - type: bind
         source: ./.env
@@ -42,8 +50,9 @@ services:
       - ./logs:/app/api/logs
       # MCP Server mounts - only the compiled binaries needed
       - ../Sizzek/mcp-servers:/app/mcp-servers:ro
-      # MCP Server environment file
-      - ../Sizzek/config/.env.sizzek:/app/.env.sizzek:ro
+      # MCP Server environment file (mount both for compatibility)
+      - ../Sizzek/config/.env.dev.sizzek:/app/.env.dev.sizzek:ro
+      - ../Sizzek/config/.env.dev.sizzek:/app/.env.sizzek:ro
       # MCP Server data directory - no longer needed (using MongoDB)
       # - mcp_data:/app/mcp-data
       # LibreChat configuration
