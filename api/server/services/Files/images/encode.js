@@ -11,7 +11,6 @@ const {
 } = require('librechat-data-provider');
 const { getStrategyFunctions } = require('~/server/services/Files/strategies');
 const countTokens = require('~/server/utils/countTokens');
-const { logger } = require('~/config');
 
 /**
  * Converts a readable stream to a base64 encoded string.

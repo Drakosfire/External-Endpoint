@@ -39,8 +39,23 @@ RUN \
 COPY --chown=node:node . .
 
 RUN \
-    # React client build
-    NODE_OPTIONS="--max-old-space-size=2048" npm run frontend; \
+    # Build packages explicitly to ensure they are available
+    echo "Building data-provider..." && \
+    npm run build:data-provider && \
+    echo "Building data-schemas..." && \
+    npm run build:data-schemas && \
+    echo "Building api..." && \
+    npm run build:api && \
+    echo "Building client-package..." && \
+    npm run build:client-package && \
+    echo "Building client..." && \
+    cd client && npm run build && \
+    cd .. && \
+    echo "Verifying built packages..." && \
+    ls -la packages/api/dist/ && \
+    ls -la packages/data-provider/dist/ && \
+    ls -la packages/data-schemas/dist/ && \
+    echo "Pruning production dependencies..." && \
     npm prune --production; \
     npm cache clean --force
 

@@ -163,7 +163,7 @@ function createOAuthCallback({ runStepEmitter, runStepDeltaEmitter }) {
  */
 async function reconnectServer({ req, res, index, signal, serverName, userMCPAuthMap }) {
   const runId = Constants.USE_PRELIM_RESPONSE_MESSAGE_ID;
-  const flowId = `${req.user?.id}:${serverName}:${Date.now()}`;
+  const flowId = `${req?.user?.id || 'unknown'}:${serverName}:${Date.now()}`;
   const flowManager = getFlowStateManager(getLogStores(CacheKeys.FLOWS));
   const stepId = 'step_oauth_login_' + serverName;
   const toolCall = {
@@ -273,7 +273,7 @@ async function createMCPTool({
   const [toolName, serverName] = toolKey.split(Constants.mcp_delimiter);
 
   const availableTools =
-    tools ?? (await getCachedTools({ userId: req.user?.id, includeGlobal: true }));
+    tools ?? (await getCachedTools({ userId: req?.user?.id || 'default', includeGlobal: true }));
   /** @type {LCTool | undefined} */
   let toolDefinition = availableTools?.[toolKey]?.function;
   if (!toolDefinition) {
@@ -316,7 +316,7 @@ function createToolInstance({ res, toolName, serverName, toolDefinition, provide
   /** @type {(toolArguments: Object | string, config?: GraphRunnableConfig) => Promise<unknown>} */
   const _call = async (toolArguments, config) => {
     const userId = config?.configurable?.user?.id || config?.configurable?.user_id;
-    const finalUserId = config?.configurable?.user_id || req.user?.id;
+    const finalUserId = config?.configurable?.user_id || config?.configurable?.user?.id;
 
     /** @type {ReturnType<typeof createAbortHandler>} */
     let abortHandler = null;
@@ -360,7 +360,6 @@ function createToolInstance({ res, toolName, serverName, toolDefinition, provide
       logger.debug(`[MCP.js][${serverName}][${toolName}] ===== MCP SERVICE LAYER DEBUG =====`);
       logger.debug(`[MCP.js][${serverName}][${toolName}] finalUserId resolved: "${finalUserId}" (type: ${typeof finalUserId})`);
       logger.debug(`[MCP.js][${serverName}][${toolName}] config.configurable.user_id: "${config?.configurable?.user_id}"`);
-      logger.debug(`[MCP.js][${serverName}][${toolName}] req.user.id: "${req.user?.id}"`);
       logger.debug(`[MCP.js][${serverName}][${toolName}] toolArguments:`, toolArguments);
       logger.debug(`[MCP.js][${serverName}][${toolName}] About to call API Manager callTool...`);
 
@@ -368,7 +367,7 @@ function createToolInstance({ res, toolName, serverName, toolDefinition, provide
       const userForMCP = config?.configurable?.user || { id: finalUserId };
 
       // Extract scheduled task context from request
-      const scheduledTaskContext = req.scheduledTaskContext;
+      const scheduledTaskContext = config?.configurable?.scheduledTaskContext;
 
       const result = await mcpManager.callTool({
         user: userForMCP,  // API Manager expects user as first parameter

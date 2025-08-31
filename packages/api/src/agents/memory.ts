@@ -90,7 +90,7 @@ export const createMemoryTool = ({
   const isOverflowing = tokenLimit ? remainingTokens <= 0 : false;
 
   return tool(
-    async ({ key, value }) => {
+    async ({ key, value }: { key: string; value: string }) => {
       try {
         if (validKeys && validKeys.length > 0 && !validKeys.includes(key)) {
           logger.warn(
@@ -198,7 +198,7 @@ const createDeleteMemoryTool = ({
   validKeys?: string[];
 }) => {
   return tool(
-    async ({ key }) => {
+    async ({ key }: { key: string }) => {
       try {
         if (validKeys && validKeys.length > 0 && !validKeys.includes(key)) {
           logger.warn(

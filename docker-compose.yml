@@ -7,8 +7,7 @@ services:
     ports:
       - "${PORT}:${PORT}"
       - "127.0.0.1:3081:3081"
-      # Expose ephemeral web UI port range for MCP servers (SECURED: localhost only)
-      - "127.0.0.1:12000-13000:12000-13000"
+      # Ephemeral web UI ports - only publish when needed (no pre-mapping)
       
     depends_on:
       mongodb:

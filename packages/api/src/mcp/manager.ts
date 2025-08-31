@@ -129,7 +129,7 @@ export class MCPManager {
     flowManager: FlowStateManager<MCPOAuthTokens | null>;
     tokenMethods?: TokenMethods;
   }): Promise<void> {
-    const processedConfig = processMCPEnv(config);
+    const processedConfig = processMCPEnv({ options: config });
     let tokens: MCPOAuthTokens | null = null;
     if (tokenMethods?.findToken) {
       try {
@@ -178,7 +178,11 @@ export class MCPManager {
     if (tokens) {
       logger.info(`[MCP][${serverName}] Loaded OAuth tokens`);
     }
-    const connection = new MCPConnection(serverName, processedConfig, undefined, tokens);
+    const connection = new MCPConnection({
+      serverName,
+      serverConfig: processedConfig,
+      oauthTokens: tokens,
+    });
     logger.info(`[MCP][${serverName}] Setting up OAuth event listener`);
     connection.on('oauthRequired', async () => {
       logger.debug(`[MCP][${serverName}] oauthRequired event received`);
@@ -443,7 +447,7 @@ export class MCPManager {
       );
     }
 
-    config = { ...(processMCPEnv(config, user, customUserVars) ?? {}) };
+    config = { ...(processMCPEnv({ options: config, user, customUserVars }) ?? {}) };
     /** If no in-memory tokens, tokens from persistent storage */
     let tokens: MCPOAuthTokens | null = null;
     if (tokenMethods?.findToken) {
@@ -500,7 +504,12 @@ export class MCPManager {
       logger.info(`[MCP][User: ${userId}][${serverName}] Loaded OAuth tokens`);
     }
 
-    connection = new MCPConnection(serverName, config, userId, tokens);
+    connection = new MCPConnection({
+      serverName,
+      serverConfig: config,
+      userId,
+      oauthTokens: tokens,
+    });
 
     connection.on('oauthRequired', async (data) => {
       logger.info(`[MCP][User: ${userId}][${serverName}] oauthRequired event received`);

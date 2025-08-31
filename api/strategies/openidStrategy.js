@@ -13,7 +13,6 @@ const {
   findOpenIDUser,
   getBalanceConfig,
 } = require('@librechat/api');
-const { isEnabled, safeStringify, logHeaders } = require('@librechat/api');
 // Lazy ESM imports for ESM-only modules in a CommonJS file
 const importOpenIdClient = () => import('openid-client');
 const importOpenIdPassport = () => import('openid-client/passport');

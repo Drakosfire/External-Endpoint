@@ -108,12 +108,12 @@ export function getOpenAIConfig(
   const llmConfig: Partial<t.ClientOptions> &
     Partial<t.OpenAIParameters> &
     Partial<AzureOpenAIInput> = Object.assign(
-    {
-      streaming,
-      model: modelOptions.model ?? '',
-    },
-    modelOptions,
-  );
+      {
+        streaming,
+        model: modelOptions.model ?? '',
+      },
+      modelOptions,
+    );
 
   const modelKwargs: Record<string, unknown> = {};
   let hasModelKwargs = false;
@@ -244,7 +244,7 @@ export function getOpenAIConfig(
         summary: reasoning_summary,
       },
       true,
-    ) as OpenAI.Reasoning;
+    );
   } else if (hasReasoningParams({ reasoning_effort })) {
     llmConfig.reasoning_effort = reasoning_effort;
   }

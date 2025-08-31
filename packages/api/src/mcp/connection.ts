@@ -130,10 +130,10 @@ export class MCPConnection extends EventEmitter {
     this.patchClientMethods();
 
     // FORCE CONSOLE LOGGING TO ENSURE VISIBILITY
-    console.log(`🔧 ${this.getLogPrefix()} CONNECTION CONSTRUCTED - client patches applied with userId: "${userId}"`);
+    console.log(`🔧 ${this.getLogPrefix()} CONNECTION CONSTRUCTED - client patches applied with userId: "${this.userId}"`);
 
     // Log that patch was applied
-    logger.debug(`${this.getLogPrefix()} CONNECTION CONSTRUCTED - client patches applied with userId: "${userId}"`);
+    logger.debug(`${this.getLogPrefix()} CONNECTION CONSTRUCTED - client patches applied with userId: "${this.userId}"`);
 
     this.setupEventListeners();
   }

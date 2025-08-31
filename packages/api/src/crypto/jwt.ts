@@ -9,6 +9,5 @@ import jwt from 'jsonwebtoken';
 export const generateShortLivedToken = (userId: string, expireIn: string = '5m'): string => {
   return jwt.sign({ id: userId }, process.env.JWT_SECRET!, {
     expiresIn: expireIn,
-    algorithm: 'HS256',
   });
 };
