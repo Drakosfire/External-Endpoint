@@ -37,7 +37,7 @@ TEST_BASE_URL=http://localhost:3080
 ### 🔧 **MCP (Model Context Protocol) Configuration**
 ```bash
 # MongoDB configuration for MCP servers
-MONGODB_CONNECTION_STRING=mongodb://localhost:27017
+MONGO_URI=mongodb://localhost:27017
 MONGODB_DATABASE=LibreChat
 MONGODB_COLLECTION=mcp_memory
 
