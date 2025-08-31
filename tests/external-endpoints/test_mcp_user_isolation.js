@@ -261,7 +261,7 @@ function testMCPArchitecturalUpgrade() {
 
     // Test environment variable structure for MCP servers
     const requiredEnvVars = [
-        'MONGODB_CONNECTION_STRING',
+        'MONGO_URI',
         'MONGODB_DATABASE',
         'MONGODB_COLLECTION',
         'MCP_STORAGE_TYPE',
@@ -287,7 +287,7 @@ function testMCPArchitecturalUpgrade() {
  */
 function getMockEnvValue(envVar) {
     const mockValues = {
-        'MONGODB_CONNECTION_STRING': process.env.MONGO_URI || 'mongodb://localhost:27017',
+        'MONGO_URI': process.env.MONGO_URI || 'mongodb://localhost:27017',
         'MONGODB_DATABASE': 'LibreChat',
         'MONGODB_COLLECTION': 'mcp_memory',
         'MCP_STORAGE_TYPE': 'paginated-graph',
