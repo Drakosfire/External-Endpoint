@@ -897,6 +897,7 @@ export class MCPManager {
     const userId = user?.id;
     const { scheduledTaskContext, ...callOptions } = options ?? {};
 
+
     // Determine the effective user ID for MCP server operations
     const effectiveUserId = scheduledTaskContext?.originalUserId || userId;
 

@@ -345,9 +345,15 @@ export class MCPConnection extends EventEmitter {
         // Clone the request to avoid modifying the original
         const patchedRequest = {
           ...request,
-          arguments: request.arguments || {},
-          // Only add connection userId if request doesn't already have one
-          ...(userId && !request.userId && { userId }) // Add userId to top-level params
+          // Add userId to both top-level and params.arguments for compatibility
+          ...(userId && !request.userId && { userId }), // Add userId to top-level
+          params: {
+            ...request.params,
+            arguments: {
+              ...request.params?.arguments,
+              ...(userId && !request.params?.arguments?.userId && { userId }) // Add userId to arguments
+            }
+          }
         };
 
         logger.debug(`${this.getLogPrefix()} PATCHED callTool final params:`, JSON.stringify({

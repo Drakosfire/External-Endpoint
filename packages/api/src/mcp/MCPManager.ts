@@ -167,10 +167,10 @@ Please follow these instructions when using tools from the respective MCP server
             icon: connection.iconPath,
             authConfig: config?.customUserVars
               ? Object.entries(config.customUserVars).map(([key, value]) => ({
-                  authField: key,
-                  label: value.title || key,
-                  description: value.description || '',
-                }))
+                authField: key,
+                label: value.title || key,
+                description: value.description || '',
+              }))
               : undefined,
           };
           if (config?.chatMenu === false) {
@@ -225,7 +225,7 @@ Please follow these instructions when using tools from the respective MCP server
     const logPrefix = userId ? `[MCP][User: ${userId}][${serverName}]` : `[MCP][${serverName}]`;
 
     try {
-      if (!this.appConnections?.has(serverName) && userId && user) {
+      if (userId && user) {
         this.updateUserLastActivity(userId);
         /** Get or create user-specific connection */
         connection = await this.getUserConnection({

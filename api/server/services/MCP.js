@@ -364,7 +364,13 @@ function createToolInstance({ res, toolName, serverName, toolDefinition, provide
       logger.debug(`[MCP.js][${serverName}][${toolName}] About to call API Manager callTool...`);
 
       // Ensure user object has proper structure for API Manager
-      const userForMCP = config?.configurable?.user || { id: finalUserId };
+      // FIXED: Always ensure the user object has the correct finalUserId
+      const userForMCP = config?.configurable?.user
+        ? { ...config.configurable.user, id: finalUserId }  // Override ID with finalUserId
+        : { id: finalUserId };
+
+      logger.debug(`[MCP.js][${serverName}][${toolName}] userForMCP.id: "${userForMCP.id}"`);
+      logger.debug(`[MCP.js][${serverName}][${toolName}] originalUser.id: "${config?.configurable?.user?.id}"`);
 
       // Extract scheduled task context from request
       const scheduledTaskContext = config?.configurable?.scheduledTaskContext;
