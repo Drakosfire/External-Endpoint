@@ -110,6 +110,7 @@
     "passport-ldapauth": "^3.0.1",
     "passport-local": "^1.0.0",
     "rate-limit-redis": "^4.2.0",
+    "semver": "^7.7.2",
     "sharp": "^0.33.5",
     "tiktoken": "^1.0.15",
     "traverse": "^0.6.7",
