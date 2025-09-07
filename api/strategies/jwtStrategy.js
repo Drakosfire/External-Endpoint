@@ -31,8 +31,7 @@ const jwtLogin = () =>
     },
     async (payload, done) => {
       try {
-        // console.log('[JWT Strategy] Payload:', payload);
-        const user = await getUserById(payload?.id, '-password -__v -totpSecret');
+        const user = await getUserById(payload?.id, '-password -__v -totpSecret -backupCodes');
         if (user) {
           user.id = user._id.toString();
           if (!user.role) {

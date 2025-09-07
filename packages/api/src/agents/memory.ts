@@ -5,8 +5,10 @@ import { Tools } from 'librechat-data-provider';
 import { logger } from '@librechat/data-schemas';
 import { Run, Providers, GraphEvents } from '@librechat/agents';
 import type {
+  OpenAIClientOptions,
   StreamEventData,
   ToolEndCallback,
+  ClientOptions,
   EventHandler,
   ToolEndData,
   LLMConfig,
@@ -88,7 +90,7 @@ export const createMemoryTool = ({
   const isOverflowing = tokenLimit ? remainingTokens <= 0 : false;
 
   return tool(
-    async ({ key, value }) => {
+    async ({ key, value }: { key: string; value: string }) => {
       try {
         if (validKeys && validKeys.length > 0 && !validKeys.includes(key)) {
           logger.warn(
@@ -196,7 +198,7 @@ const createDeleteMemoryTool = ({
   validKeys?: string[];
 }) => {
   return tool(
-    async ({ key }) => {
+    async ({ key }: { key: string }) => {
       try {
         if (validKeys && validKeys.length > 0 && !validKeys.includes(key)) {
           logger.warn(
@@ -332,7 +334,7 @@ ${memory ?? 'No existing memories'}`;
       disableStreaming: true,
     };
 
-    const finalLLMConfig = {
+    const finalLLMConfig: ClientOptions = {
       ...defaultLLMConfig,
       ...llmConfig,
       /**
@@ -341,6 +343,24 @@ ${memory ?? 'No existing memories'}`;
       streaming: false,
       disableStreaming: true,
     };
+
+    // Handle GPT-5+ models
+    if ('model' in finalLLMConfig && /\bgpt-[5-9]\b/i.test(finalLLMConfig.model ?? '')) {
+      // Remove temperature for GPT-5+ models
+      delete finalLLMConfig.temperature;
+
+      // Move maxTokens to modelKwargs for GPT-5+ models
+      if ('maxTokens' in finalLLMConfig && finalLLMConfig.maxTokens != null) {
+        const modelKwargs = (finalLLMConfig as OpenAIClientOptions).modelKwargs ?? {};
+        const paramName =
+          (finalLLMConfig as OpenAIClientOptions).useResponsesApi === true
+            ? 'max_output_tokens'
+            : 'max_completion_tokens';
+        modelKwargs[paramName] = finalLLMConfig.maxTokens;
+        delete finalLLMConfig.maxTokens;
+        (finalLLMConfig as OpenAIClientOptions).modelKwargs = modelKwargs;
+      }
+    }
 
     const artifactPromises: Promise<TAttachment | null>[] = [];
     const memoryCallback = createMemoryCallback({ res, artifactPromises });

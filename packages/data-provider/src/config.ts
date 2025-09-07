@@ -6,6 +6,7 @@ import { specsConfigSchema, TSpecsConfig } from './models';
 import { fileConfigSchema } from './file-config';
 import { FileSources } from './types/files';
 import { MCPServersSchema } from './mcp';
+import { apiBaseUrl } from './api-endpoints';
 
 export const defaultSocialLogins = ['google', 'facebook', 'openid', 'github', 'discord', 'saml'];
 
@@ -61,6 +62,15 @@ export enum SettingsViews {
 }
 
 export const fileSourceSchema = z.nativeEnum(FileSources);
+
+export const fileStrategiesSchema = z
+  .object({
+    default: fileSourceSchema.optional(),
+    avatar: fileSourceSchema.optional(),
+    image: fileSourceSchema.optional(),
+    document: fileSourceSchema.optional(),
+  })
+  .optional();
 
 // Helper type to extract the shape of the Zod object schema
 type SchemaShape<T> = T extends z.ZodObject<infer U> ? U : never;
@@ -255,6 +265,9 @@ export const agentsEndpointSchema = baseEndpointSchema
       recursionLimit: z.number().optional(),
       disableBuilder: z.boolean().optional().default(false),
       maxRecursionLimit: z.number().optional(),
+      maxCitations: z.number().min(1).max(50).optional().default(30),
+      maxCitationsPerFile: z.number().min(1).max(10).optional().default(7),
+      minRelevanceScore: z.number().min(0.0).max(1.0).optional().default(0.45),
       allowedProviders: z.array(z.union([z.string(), eModelEndpointSchema])).optional(),
       capabilities: z
         .array(z.nativeEnum(AgentCapabilities))
@@ -265,6 +278,9 @@ export const agentsEndpointSchema = baseEndpointSchema
   .default({
     disableBuilder: false,
     capabilities: defaultAgentCapabilities,
+    maxCitations: 30,
+    maxCitationsPerFile: 7,
+    minRelevanceScore: 0.45,
   });
 
 export type TAgentsEndpoint = z.infer<typeof agentsEndpointSchema>;
@@ -285,6 +301,7 @@ export const endpointSchema = baseEndpointSchema.merge(
     }),
     summarize: z.boolean().optional(),
     summaryModel: z.string().optional(),
+    iconURL: z.string().optional(),
     forcePrompt: z.boolean().optional(),
     modelDisplayLabel: z.string().optional(),
     headers: z.record(z.any()).optional(),
@@ -492,7 +509,7 @@ const mcpServersSchema = z.object({
 
 export type TMcpServersConfig = z.infer<typeof mcpServersSchema>;
 
-export const intefaceSchema = z
+export const interfaceSchema = z
   .object({
     privacyPolicy: z
       .object({
@@ -517,7 +534,20 @@ export const intefaceSchema = z
     temporaryChatRetention: z.number().min(1).max(8760).optional(),
     runCode: z.boolean().optional(),
     webSearch: z.boolean().optional(),
+    peoplePicker: z
+      .object({
+        users: z.boolean().optional(),
+        groups: z.boolean().optional(),
+        roles: z.boolean().optional(),
+      })
+      .optional(),
+    marketplace: z
+      .object({
+        use: z.boolean().optional(),
+      })
+      .optional(),
     fileSearch: z.boolean().optional(),
+    fileCitations: z.boolean().optional(),
   })
   .default({
     endpointsMenu: true,
@@ -533,10 +563,19 @@ export const intefaceSchema = z
     temporaryChat: true,
     runCode: true,
     webSearch: true,
+    peoplePicker: {
+      users: true,
+      groups: true,
+      roles: true,
+    },
+    marketplace: {
+      use: false,
+    },
     fileSearch: true,
+    fileCitations: true,
   });
 
-export type TInterfaceConfig = z.infer<typeof intefaceSchema>;
+export type TInterfaceConfig = z.infer<typeof interfaceSchema>;
 export type TBalanceConfig = z.infer<typeof balanceSchema>;
 
 export const turnstileOptionsSchema = z
@@ -597,6 +636,12 @@ export type TStartupConfig = {
   instanceProjectId: string;
   bundlerURL?: string;
   staticBundlerURL?: string;
+  sharePointFilePickerEnabled?: boolean;
+  sharePointBaseUrl?: string;
+  sharePointPickerGraphScope?: string;
+  sharePointPickerSharePointScope?: string;
+  openidReuseTokens?: boolean;
+  minPasswordLength?: number;
   webSearch?: {
     searchProvider?: SearchProviders;
     scraperType?: ScraperTypes;
@@ -727,6 +772,7 @@ export const memorySchema = z.object({
   disabled: z.boolean().optional(),
   validKeys: z.array(z.string()).optional(),
   tokenLimit: z.number().optional(),
+  charLimit: z.number().optional().default(10000),
   personalize: z.boolean().default(true),
   messageWindowSize: z.number().optional().default(5),
   agent: z
@@ -746,6 +792,8 @@ export const memorySchema = z.object({
 
 export type TMemoryConfig = z.infer<typeof memorySchema>;
 
+const customEndpointsSchema = z.array(endpointSchema.partial()).optional();
+
 export const configSchema = z.object({
   version: z.string(),
   cache: z.boolean().default(true),
@@ -757,9 +805,10 @@ export const configSchema = z.object({
   includedTools: z.array(z.string()).optional(),
   filteredTools: z.array(z.string()).optional(),
   mcpServers: MCPServersSchema.optional(),
-  interface: intefaceSchema,
+  interface: interfaceSchema,
   turnstile: turnstileSchema.optional(),
   fileStrategy: fileSourceSchema.default(FileSources.local),
+  fileStrategies: fileStrategiesSchema,
   actions: z
     .object({
       allowedDomains: z.array(z.string()).optional(),
@@ -793,7 +842,7 @@ export const configSchema = z.object({
       [EModelEndpoint.azureAssistants]: assistantEndpointSchema.optional(),
       [EModelEndpoint.assistants]: assistantEndpointSchema.optional(),
       [EModelEndpoint.agents]: agentsEndpointSchema.optional(),
-      [EModelEndpoint.custom]: z.array(endpointSchema.partial()).optional(),
+      [EModelEndpoint.custom]: customEndpointsSchema.optional(),
       [EModelEndpoint.bedrock]: baseEndpointSchema.optional(),
     })
     .strict()
@@ -806,6 +855,7 @@ export const configSchema = z.object({
 export const getConfigDefaults = () => getSchemaDefaults(configSchema);
 
 export type TCustomConfig = z.infer<typeof configSchema>;
+export type TCustomEndpoints = z.infer<typeof customEndpointsSchema>;
 
 export type TProviderSchema =
   | z.infer<typeof ttsOpenaiSchema>
@@ -853,7 +903,7 @@ export const defaultEndpoints: EModelEndpoint[] = [
 export const alternateName = {
   [EModelEndpoint.openAI]: 'OpenAI',
   [EModelEndpoint.assistants]: 'Assistants',
-  [EModelEndpoint.agents]: 'Agents',
+  [EModelEndpoint.agents]: 'My Agents',
   [EModelEndpoint.azureAssistants]: 'Azure Assistants',
   [EModelEndpoint.azureOpenAI]: 'Azure OpenAI',
   [EModelEndpoint.chatGPTBrowser]: 'ChatGPT',
@@ -995,9 +1045,9 @@ export const initialModelsConfig: TModelsConfig = {
 };
 
 export const EndpointURLs = {
-  [EModelEndpoint.assistants]: '/api/assistants/v2/chat',
-  [EModelEndpoint.azureAssistants]: '/api/assistants/v1/chat',
-  [EModelEndpoint.agents]: `/api/${EModelEndpoint.agents}/chat`,
+  [EModelEndpoint.assistants]: `${apiBaseUrl()}/api/assistants/v2/chat`,
+  [EModelEndpoint.azureAssistants]: `${apiBaseUrl()}/api/assistants/v1/chat`,
+  [EModelEndpoint.agents]: `${apiBaseUrl()}/api/${EModelEndpoint.agents}/chat`,
 } as const;
 
 export const modularEndpoints = new Set<EModelEndpoint | string>([
@@ -1170,13 +1220,13 @@ export enum CacheKeys {
    */
   STATIC_CONFIG = 'STATIC_CONFIG',
   /**
+   * Key for the app config namespace.
+   */
+  APP_CONFIG = 'APP_CONFIG',
+  /**
    * Key for accessing Abort Keys
    */
   ABORT_KEYS = 'ABORT_KEYS',
-  /**
-   * Key for the override config cache.
-   */
-  OVERRIDE_CONFIG = 'OVERRIDE_CONFIG',
   /**
    * Key for the bans cache.
    */
@@ -1198,10 +1248,6 @@ export enum CacheKeys {
    * Key for in-progress flow states.
    */
   FLOWS = 'FLOWS',
-  /**
-   * Key for individual MCP Tool Manifests.
-   */
-  MCP_TOOLS = 'MCP_TOOLS',
   /**
    * Key for pending chat requests (concurrency check)
    */
@@ -1346,6 +1392,22 @@ export enum ErrorTypes {
    * Invalid Agent Provider (excluded by Admin)
    */
   INVALID_AGENT_PROVIDER = 'invalid_agent_provider',
+  /**
+   * Missing model selection
+   */
+  MISSING_MODEL = 'missing_model',
+  /**
+   * Models configuration not loaded
+   */
+  MODELS_NOT_LOADED = 'models_not_loaded',
+  /**
+   * Endpoint models not loaded
+   */
+  ENDPOINT_MODELS_NOT_LOADED = 'endpoint_models_not_loaded',
+  /**
+   * Generic Authentication failure
+   */
+  AUTH_FAILED = 'auth_failed',
 }
 
 /**
@@ -1464,11 +1526,13 @@ export enum TTSProviders {
 /** Enum for app-wide constants */
 export enum Constants {
   /** Key for the app's version. */
-  VERSION = 'v0.7.9',
+  VERSION = 'v0.8.0-rc3',
   /** Key for the Custom Config's version (librechat.yaml). */
   CONFIG_VERSION = '1.2.8',
   /** Standard value for the first message's `parentMessageId` value, to indicate no parent exists. */
   NO_PARENT = '00000000-0000-0000-0000-000000000000',
+  /** Standard value to use whatever the submission prelim. `responseMessageId` is */
+  USE_PRELIM_RESPONSE_MESSAGE_ID = 'USE_PRELIM_RESPONSE_MESSAGE_ID',
   /** Standard value for the initial conversationId before a request is sent */
   NEW_CONVO = 'new',
   /** Standard value for the temporary conversationId after a request is sent and before the server responds */
@@ -1495,6 +1559,13 @@ export enum Constants {
   mcp_delimiter = '_mcp_',
   /** Prefix for MCP plugins */
   mcp_prefix = 'mcp_',
+  /** Unique value to indicate all MCP servers. For backend use only. */
+  mcp_all = 'sys__all__sys',
+  /**
+   * Unique value to indicate the MCP tool was added to an agent.
+   * This helps inform the UI if the mcp server was previously added.
+   * */
+  mcp_server = 'sys__server__sys',
   /** Placeholder Agent ID for Ephemeral Agents */
   EPHEMERAL_AGENT_ID = 'ephemeral',
 }

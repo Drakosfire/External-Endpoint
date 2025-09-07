@@ -2,16 +2,23 @@ const undici = require('undici');
 const fetch = require('node-fetch');
 const passport = require('passport');
 const jwtDecode = require('jsonwebtoken/decode');
-const { CacheKeys } = require('librechat-data-provider');
 const { HttpsProxyAgent } = require('https-proxy-agent');
 const { hashToken, logger } = require('@librechat/data-schemas');
-const { isEnabled, safeStringify, logHeaders } = require('@librechat/api');
+const { CacheKeys, ErrorTypes } = require('librechat-data-provider');
+const { Strategy: OpenIDStrategy } = require('openid-client/passport');
+const {
+  isEnabled,
+  logHeaders,
+  safeStringify,
+  findOpenIDUser,
+  getBalanceConfig,
+} = require('@librechat/api');
 // Lazy ESM imports for ESM-only modules in a CommonJS file
 const importOpenIdClient = () => import('openid-client');
 const importOpenIdPassport = () => import('openid-client/passport');
 const { getStrategyFunctions } = require('~/server/services/Files/strategies');
 const { findUser, createUser, updateUser } = require('~/models');
-const { getBalanceConfig } = require('~/server/services/Config');
+const { getAppConfig } = require('~/server/services/Config');
 const getLogStores = require('~/cache/getLogStores');
 
 /**
@@ -95,7 +102,37 @@ let openidConfig = null;
 //overload currenturl function because of express version 4 buggy req.host doesn't include port
 //More info https://github.com/panva/openid-client/pull/713
 
-// CustomOpenIDStrategy will be defined after dynamic import inside setupOpenId
+class CustomOpenIDStrategy extends OpenIDStrategy {
+  currentUrl(req) {
+    const hostAndProtocol = process.env.DOMAIN_SERVER;
+    return new URL(`${hostAndProtocol}${req.originalUrl ?? req.url}`);
+  }
+
+  authorizationRequestParams(req, options) {
+    const params = super.authorizationRequestParams(req, options);
+    if (options?.state && !params.has('state')) {
+      params.set('state', options.state);
+    }
+
+    if (process.env.OPENID_AUDIENCE) {
+      params.set('audience', process.env.OPENID_AUDIENCE);
+      logger.debug(
+        `[openidStrategy] Adding audience to authorization request: ${process.env.OPENID_AUDIENCE}`,
+      );
+    }
+
+    /** Generate nonce for federated providers that require it */
+    const shouldGenerateNonce = isEnabled(process.env.OPENID_GENERATE_NONCE);
+    if (shouldGenerateNonce && !params.has('nonce') && this._sessionKey) {
+      const crypto = require('crypto');
+      const nonce = crypto.randomBytes(16).toString('hex');
+      params.set('nonce', nonce);
+      logger.debug('[openidStrategy] Generated nonce for federated provider:', nonce);
+    }
+
+    return params;
+  }
+}
 
 /**
  * Exchange the access token for a new access token using the on-behalf-of flow if required.
@@ -257,6 +294,8 @@ function convertToUsername(input, defaultValue = '') {
  */
 async function setupOpenId() {
   try {
+    const shouldGenerateNonce = isEnabled(process.env.OPENID_GENERATE_NONCE);
+
     const client = await importOpenIdClient();
     const { Strategy: OpenIDStrategy } = await importOpenIdPassport();
 
@@ -279,6 +318,12 @@ async function setupOpenId() {
       client_secret: process.env.OPENID_CLIENT_SECRET,
     };
 
+    if (shouldGenerateNonce) {
+      clientMetadata.response_types = ['code'];
+      clientMetadata.grant_types = ['authorization_code'];
+      clientMetadata.token_endpoint_auth_method = 'client_secret_post';
+    }
+
     /** @type {Configuration} */
     openidConfig = await client.discovery(
       new URL(process.env.OPENID_ISSUER),
@@ -294,27 +339,37 @@ async function setupOpenId() {
     const requiredRoleParameterPath = process.env.OPENID_REQUIRED_ROLE_PARAMETER_PATH;
     const requiredRoleTokenKind = process.env.OPENID_REQUIRED_ROLE_TOKEN_KIND;
     const usePKCE = isEnabled(process.env.OPENID_USE_PKCE);
+    logger.info(`[openidStrategy] OpenID authentication configuration`, {
+      generateNonce: shouldGenerateNonce,
+      reason: shouldGenerateNonce
+        ? 'OPENID_GENERATE_NONCE=true - Will generate nonce and use explicit metadata for federated providers'
+        : 'OPENID_GENERATE_NONCE=false - Standard flow without explicit nonce or metadata',
+    });
+
     const openidLogin = new CustomOpenIDStrategy(
       {
         config: openidConfig,
         scope: process.env.OPENID_SCOPE,
         callbackURL: process.env.DOMAIN_SERVER + process.env.OPENID_CALLBACK_URL,
+        clockTolerance: process.env.OPENID_CLOCK_TOLERANCE || 300,
         usePKCE,
       },
       async (tokenset, done) => {
         try {
           const claims = tokenset.claims();
-          let user = await findUser({ openidId: claims.sub });
-          logger.info(
-            `[openidStrategy] user ${user ? 'found' : 'not found'} with openidId: ${claims.sub}`,
-          );
+          const result = await findOpenIDUser({
+            openidId: claims.sub,
+            email: claims.email,
+            strategyName: 'openidStrategy',
+            findUser,
+          });
+          let user = result.user;
+          const error = result.error;
 
-          if (!user) {
-            user = await findUser({ email: claims.email });
-            logger.info(
-              `[openidStrategy] user ${user ? 'found' : 'not found'} with email: ${claims.email
-              } for openidId: ${claims.sub}`,
-            );
+          if (error) {
+            return done(null, false, {
+              message: ErrorTypes.AUTH_FAILED,
+            });
           }
           const userinfo = {
             ...claims,
@@ -369,16 +424,18 @@ async function setupOpenId() {
               email: userinfo.email || '',
               emailVerified: userinfo.email_verified || false,
               name: fullName,
+              idOnTheSource: userinfo.oid,
             };
 
-            const balanceConfig = await getBalanceConfig();
-
+            const appConfig = await getAppConfig();
+            const balanceConfig = getBalanceConfig(appConfig);
             user = await createUser(user, balanceConfig, true, true);
           } else {
             user.provider = 'openid';
             user.openidId = userinfo.sub;
             user.username = username;
             user.name = fullName;
+            user.idOnTheSource = userinfo.oid;
           }
 
           if (!!userinfo && userinfo.picture && !user.avatar?.includes('manual=true')) {

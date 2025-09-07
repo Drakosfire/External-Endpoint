@@ -1,9 +1,10 @@
 {
   "name": "@librechat/frontend",
-  "version": "v0.7.9",
+  "version": "v0.8.0-rc3",
   "description": "",
   "type": "module",
   "scripts": {
+    "typecheck": "tsc --noEmit",
     "data-provider": "cd .. && npm run build:data-provider",
     "build:file": "cross-env NODE_ENV=production vite build --debug > vite-output.log 2>&1",
     "build": "cross-env NODE_ENV=production vite build && node ./scripts/post-build.cjs",
@@ -36,6 +37,7 @@
     "@headlessui/react": "^2.1.2",
     "@librechat/client": "*",
     "@marsidev/react-turnstile": "^1.1.0",
+    "@mcp-ui/client": "^5.7.0",
     "@radix-ui/react-accordion": "^1.1.2",
     "@radix-ui/react-alert-dialog": "^1.0.2",
     "@radix-ui/react-checkbox": "^1.0.3",
@@ -116,6 +118,7 @@
     "@babel/preset-env": "^7.22.15",
     "@babel/preset-react": "^7.22.15",
     "@babel/preset-typescript": "^7.22.15",
+    "@rolldown/pluginutils": "^1.0.0-beta.34",
     "@tanstack/react-query-devtools": "^4.29.0",
     "@testing-library/dom": "^9.3.0",
     "@testing-library/jest-dom": "^5.16.5",
