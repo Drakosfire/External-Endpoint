@@ -54,7 +54,7 @@ services:
       # MCP Server mounts - only the compiled binaries needed
       - ../Sizzek/mcp-servers:/app/mcp-servers:ro
       # MCP Server environment file (mount both for compatibility)
-      - ../Sizzek/config/.env.dev.sizzek:/app/.env.sizzek:ro
+      - ../Sizzek/config/.env.sizzek:/app/.env.sizzek:ro
       # Mount mcp-web-ui package for gateway testing
       - ../mcp-web-ui:/app/node_modules/mcp-web-ui:ro
       # MCP Server data directory - no longer needed (using MongoDB)
