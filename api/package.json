@@ -45,6 +45,7 @@
     "@keyv/redis": "^4.3.3",
     "@langchain/community": "^0.3.47",
     "@langchain/core": "^0.3.62",
+    "@langchain/google-common": "^0.2.16",
     "@langchain/google-genai": "^0.2.13",
     "@langchain/google-vertexai": "^0.2.13",
     "@langchain/openai": "^0.5.18",
