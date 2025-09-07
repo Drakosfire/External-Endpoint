@@ -26,6 +26,8 @@ const plugins = [
   commonjs({
     transformMixedEsModules: true,
     requireReturnsDefault: 'auto',
+    // Reduce memory usage by limiting transformation
+    ignore: ['conditional-runtime-dependency'],
   }),
   typescript({
     tsconfig: './tsconfig.build.json',
@@ -39,6 +41,9 @@ const plugins = [
      * Always include source content in sourcemaps for better debugging
      */
     inlineSources: true,
+    // Reduce memory usage during compilation
+    incremental: true,
+    tsBuildInfoFile: './dist/.tsbuildinfo',
   }),
   json(),
 ];
@@ -59,6 +64,14 @@ const cjsBuild = {
   external: [...Object.keys(pkg.dependencies || {}), ...Object.keys(pkg.devDependencies || {})],
   preserveSymlinks: true,
   plugins,
+  // Memory optimization options
+  treeshake: {
+    moduleSideEffects: false,
+    propertyReadSideEffects: false,
+    unknownGlobalSideEffects: false,
+  },
+  // Reduce memory usage during build
+  maxParallelFileOps: 2,
 };
 
 export default cjsBuild;
