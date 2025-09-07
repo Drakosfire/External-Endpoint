@@ -43,7 +43,7 @@ services:
       - MCP_WEB_UI_BLOCKED_PORTS=11434
     env_file:
       - .env
-      - ../Sizzek/config/.env.dev.sizzek
+      - ../Sizzek/config/.env.sizzek
     volumes:
       - type: bind
         source: ./.env
