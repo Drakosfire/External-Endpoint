@@ -2,6 +2,7 @@ import React from 'react';
 import { useLocalize } from '~/hooks';
 import { UIResourceRenderer } from '@mcp-ui/client';
 import UIResourceGrid from './UIResourceGrid';
+import MCPWebUIRenderer from './MCPWebUIRenderer';
 import type { UIResource } from '~/common';
 
 function OptimizedCodeBlock({ text, maxHeight = 320 }: { text: string; maxHeight?: number }) {
@@ -93,7 +94,7 @@ export default function ToolCallInfo({
               {uiResources.length > 1 && <UIResourceGrid uiResources={uiResources} />}
 
               {uiResources.length === 1 && (
-                <UIResourceRenderer
+                <MCPWebUIRenderer
                   resource={uiResources[0]}
                   onUIAction={async (result) => {
                     console.log('Action:', result);
