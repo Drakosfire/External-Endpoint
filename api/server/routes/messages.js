@@ -10,7 +10,7 @@ const {
   deleteMessages,
 } = require('~/models');
 const { findAllArtifacts, replaceArtifactContent } = require('~/server/services/Artifacts/update');
-const { requireJwtAuth, validateMessageReq } = require('~/server/middleware');
+const { requireJwtAuth, validateMessageReq, configMiddleware } = require('~/server/middleware');
 const validateExternalMessage = require('../middleware/validateExternalMessage');
 const { cleanUpPrimaryKeyValue } = require('~/lib/utils/misc');
 const { getConvosQueried } = require('~/models/Conversation');
@@ -49,6 +49,9 @@ router.use((req, res, next) => {
   }
   requireJwtAuth(req, res, next);
 });
+
+// Apply config middleware to all message routes
+router.use(configMiddleware);
 
 router.get('/', async (req, res) => {
   try {
