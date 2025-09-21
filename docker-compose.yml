@@ -121,6 +121,37 @@ services:
     env_file:
       - .env
 
+  # SMS HTTP Server - Handles Twilio webhooks for LibreChat SMS integration
+  sms-server:
+    container_name: sms-server
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: always
+    user: "${UID}:${GID}"
+    depends_on:
+      - api  # SMS server needs LibreChat to be running
+    networks:
+      - default
+    command: ["node", "/app/mcp-servers/twilio-sms/dist/sms-server.js"]
+    environment:
+      - NODE_ENV=production
+      - SMS_PORT=3081
+      # Inherit environment from LibreChat
+      - MONGO_URI=mongodb://librechat_user:${MONGO_PASSWORD}@mongodb:27017/LibreChat?authSource=LibreChat
+    env_file:
+      - .env
+      - ../Sizzek/config/.env.sizzek
+    volumes:
+      - type: bind
+        source: ../Sizzek/mcp-servers
+        target: /app/mcp-servers
+        read_only: true
+      - type: bind
+        source: ../Sizzek/config/.env.sizzek
+        target: /app/.env.sizzek
+        read_only: true
+
 volumes:
   pgdata2:
   mongodb_data:
